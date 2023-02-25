@@ -1,22 +1,22 @@
-use parking_lot::RwLock;
+#![feature(variant_count)]
+
+use parking_lot::{RwLock, RwLockWriteGuard};
 use std::sync::atomic::AtomicUsize;
-use std::sync::mpsc::Receiver;
-use std::sync::mpsc::{Sender, channel};
 use std::sync::atomic::Ordering::SeqCst;
+use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{channel, Sender};
 use std::sync::Arc;
 
-mod control_cables;
-mod cpu_component;
 mod bits;
 mod bus;
+mod cpu_component;
 
-use crate::bus::Bus;
 use crate::bits::MValue;
+use crate::bus::Bus;
 
 #[cfg(test)]
 mod tests;
 
-use crate::control_cables::ControlCables;
 use crate::cpu_component::*;
 
 fn clock_tick(clock_rx: &Receiver<()>, txs: &Vec<Sender<()>>, finished: &AtomicUsize) {
@@ -39,14 +39,24 @@ fn clock_thread(clock_rx: Receiver<()>, txs: Vec<Sender<()>>, finished: &AtomicU
     }
 }
 
+fn reg_in(reg_num: usize) -> usize {
+    ControlCable::RegBase as usize + 2 * reg_num
+}
+
+fn reg_out(reg_num: usize) -> usize {
+    ControlCable::RegBase as usize + 2 * reg_num + 1
+}
+
 fn main() {
-    let cables = RwLock::new(ControlCables::new());
+    let cables = RwLock::new([false; CONTROL_CABLES_SIZE]);
     let bus = Arc::new(Bus::new());
     let finished = AtomicUsize::new(0);
     let (clock_tx, clock_rx) = channel();
 
     let components: Vec<Box<dyn CpuComponent + Send + Sync>> = vec![
-        Box::new(ProgramCounterComponent { program_counter: MValue::from_u32(0) }),
+        Box::new(ProgramCounterComponent {
+            program_counter: MValue::from_u32(0),
+        }),
         Box::new(RegisterComponent {
             value: MValue::from_u32(10),
             reg_num: 0,
@@ -76,7 +86,7 @@ fn main() {
                     bus: bus.clone(),
                     rx: rx,
                     finished: &finished,
-                    clock_tx: clock_tx.clone()
+                    clock_tx: clock_tx.clone(),
                 },
                 c,
                 s,
@@ -88,16 +98,16 @@ fn main() {
         // });
         {
             let mut cables_writer = cables.write();
-            cables_writer.reset();
-            cables_writer.reg_out[0] = true;
-            cables_writer.reg_in[1] = true;
+            *cables_writer = [false; CONTROL_CABLES_SIZE];
+            cables_writer[reg_out(0)] = true;
+            cables_writer[reg_in(1)] = true;
         }
         clock_tick(&clock_rx, &txs, &finished);
         {
             let mut cables_writer = cables.write();
-            cables_writer.reset();
-            cables_writer.reg_out[3] = true;
-            cables_writer.reg_in[1] = true;
+            *cables_writer = [false; CONTROL_CABLES_SIZE];
+            cables_writer[reg_out(3)] = true;
+            cables_writer[reg_in(1)] = true;
         }
         clock_tick(&clock_rx, &txs, &finished);
     });

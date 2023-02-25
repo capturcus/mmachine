@@ -2,12 +2,33 @@ use parking_lot::RwLock;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::mpsc::Sender;
 
-use crate::control_cables::ControlCables;
 use crate::bits::MValue;
 use crate::bus::Bus;
 use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc;
 use std::sync::Arc;
+
+const REGISTERS_NUM: usize = 4;
+pub enum ControlCable {
+    Halt,
+    MemoryAddressIn,
+    RamIn,
+    RamOut,
+    IntructionRegisterOut,
+    IntructionRegisterIn,
+    AddMul,
+    SubDiv,
+    CounterEnable,
+    CounterOut,
+    CounterIn,
+    InputOut,
+    OutputIn,
+    RegBase,
+}
+
+pub const CONTROL_CABLES_SIZE: usize = std::mem::variant_count::<ControlCable>() + REGISTERS_NUM * 2 - 1;
+
+pub type ControlCables = [bool; CONTROL_CABLES_SIZE];
 
 pub struct CpuComponentArgs<'a> {
     pub cables: &'a RwLock<ControlCables>,
@@ -40,13 +61,14 @@ pub struct ProgramCounterComponent {
 
 impl CpuComponent for ProgramCounterComponent {
     fn step(&mut self, bus: Arc<Bus>, cables: &ControlCables) {
-        if cables.counter_enable {
-            self.program_counter.set(&MValue::from_u32(self.program_counter.as_u32() + 1));
+        if cables[ControlCable::CounterEnable as usize] {
+            self.program_counter
+                .set(&MValue::from_u32(self.program_counter.as_u32() + 1));
         }
-        if cables.counter_in {
+        if cables[ControlCable::CounterIn as usize] {
             bus.read_into(&self.program_counter);
         }
-        if cables.counter_out {
+        if cables[ControlCable::CounterOut as usize] {
             bus.write_from(&self.program_counter);
         }
     }
@@ -59,10 +81,10 @@ pub struct RegisterComponent {
 
 impl CpuComponent for RegisterComponent {
     fn step(&mut self, bus: Arc<Bus>, cables: &ControlCables) {
-        if cables.reg_in[self.reg_num] {
+        if cables[ControlCable::RegBase as usize + 2 * self.reg_num] {
             bus.read_into(&self.value);
         }
-        if cables.reg_out[self.reg_num] {
+        if cables[ControlCable::RegBase as usize + 2 * self.reg_num + 1] {
             bus.write_from(&self.value);
         }
         println!("register {} is now {}", self.reg_num, self.value.as_u32());
