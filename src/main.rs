@@ -1,5 +1,5 @@
 use parking_lot::RwLock;
-use std::sync::atomic::{AtomicUsize, AtomicU32};
+use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::{Sender, channel};
 use std::sync::atomic::Ordering::SeqCst;
@@ -7,6 +7,14 @@ use std::sync::Arc;
 
 mod control_cables;
 mod cpu_component;
+mod bits;
+mod bus;
+
+use crate::bus::Bus;
+use crate::bits::MValue;
+
+#[cfg(test)]
+mod tests;
 
 use crate::control_cables::ControlCables;
 use crate::cpu_component::*;
@@ -33,30 +41,26 @@ fn clock_thread(clock_rx: Receiver<()>, txs: Vec<Sender<()>>, finished: &AtomicU
 
 fn main() {
     let cables = RwLock::new(ControlCables::new());
-    let bus = Arc::new(Bus{
-        value: AtomicU32::new(0),
-        mutex: parking_lot::Mutex::new(false),
-        cvar: parking_lot::Condvar::new()
-    });
+    let bus = Arc::new(Bus::new());
     let finished = AtomicUsize::new(0);
     let (clock_tx, clock_rx) = channel();
 
     let components: Vec<Box<dyn CpuComponent + Send + Sync>> = vec![
-        Box::new(ProgramCounterComponent { program_counter: 0 }),
+        Box::new(ProgramCounterComponent { program_counter: MValue::from_u32(0) }),
         Box::new(RegisterComponent {
-            value: 10,
+            value: MValue::from_u32(10),
             reg_num: 0,
         }),
         Box::new(RegisterComponent {
-            value: 0,
+            value: MValue::from_u32(0),
             reg_num: 1,
         }),
         Box::new(RegisterComponent {
-            value: 0,
+            value: MValue::from_u32(0),
             reg_num: 2,
         }),
         Box::new(RegisterComponent {
-            value: 0,
+            value: MValue::from_u32(5),
             reg_num: 3,
         }),
     ];
@@ -84,7 +88,15 @@ fn main() {
         // });
         {
             let mut cables_writer = cables.write();
+            cables_writer.reset();
             cables_writer.reg_out[0] = true;
+            cables_writer.reg_in[1] = true;
+        }
+        clock_tick(&clock_rx, &txs, &finished);
+        {
+            let mut cables_writer = cables.write();
+            cables_writer.reset();
+            cables_writer.reg_out[3] = true;
             cables_writer.reg_in[1] = true;
         }
         clock_tick(&clock_rx, &txs, &finished);

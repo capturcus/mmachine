@@ -1,35 +1,13 @@
-use parking_lot::{RwLock, Mutex};
+use parking_lot::RwLock;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::mpsc::Sender;
 
 use crate::control_cables::ControlCables;
-use std::sync::atomic::{AtomicU32, AtomicUsize};
+use crate::bits::MValue;
+use crate::bus::Bus;
+use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc;
 use std::sync::Arc;
-
-pub struct Bus {
-    pub value: AtomicU32,
-    pub mutex: parking_lot::Mutex<bool>,
-    pub cvar: parking_lot::Condvar,
-}
-
-impl Bus {
-    fn write(&self, val: u32) {
-        let mut wrote = self.mutex.lock();
-        *wrote = true;
-        self.value.store(val, SeqCst);
-        self.cvar.notify_one();
-    }
-
-    fn read(&self) -> u32 {
-        let mut wrote = self.mutex.lock();
-        if !*wrote {
-            self.cvar.wait(&mut wrote);
-        }
-        *wrote = false;
-        self.value.load(SeqCst)
-    }
-}
 
 pub struct CpuComponentArgs<'a> {
     pub cables: &'a RwLock<ControlCables>,
@@ -57,36 +35,36 @@ pub fn start_cpu_component<'a, T: CpuComponent + std::marker::Send + ?Sized + 's
 }
 
 pub struct ProgramCounterComponent {
-    pub program_counter: u32,
+    pub program_counter: MValue,
 }
 
 impl CpuComponent for ProgramCounterComponent {
     fn step(&mut self, bus: Arc<Bus>, cables: &ControlCables) {
         if cables.counter_enable {
-            self.program_counter += 1;
+            self.program_counter.set(&MValue::from_u32(self.program_counter.as_u32() + 1));
         }
         if cables.counter_in {
-            self.program_counter = bus.read();
+            bus.read_into(&self.program_counter);
         }
         if cables.counter_out {
-            bus.write(self.program_counter);
+            bus.write_from(&self.program_counter);
         }
     }
 }
 
 pub struct RegisterComponent {
     pub reg_num: usize,
-    pub value: u32,
+    pub value: MValue,
 }
 
 impl CpuComponent for RegisterComponent {
     fn step(&mut self, bus: Arc<Bus>, cables: &ControlCables) {
         if cables.reg_in[self.reg_num] {
-            self.value = bus.read();
+            bus.read_into(&self.value);
         }
         if cables.reg_out[self.reg_num] {
-            bus.write(self.value);
+            bus.write_from(&self.value);
         }
-        println!("register {} is now {}", self.reg_num, self.value);
+        println!("register {} is now {}", self.reg_num, self.value.as_u32());
     }
 }
