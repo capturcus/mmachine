@@ -1,9 +1,9 @@
 use parking_lot::RwLock;
-use std::sync::atomic::AtomicU32;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, AtomicU32};
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::{Sender, channel};
 use std::sync::atomic::Ordering::SeqCst;
+use std::sync::Arc;
 
 mod control_cables;
 mod cpu_component;
@@ -33,7 +33,11 @@ fn clock_thread(clock_rx: Receiver<()>, txs: Vec<Sender<()>>, finished: &AtomicU
 
 fn main() {
     let cables = RwLock::new(ControlCables::new());
-    let bus = AtomicU32::new(0);
+    let bus = Arc::new(Bus{
+        value: AtomicU32::new(0),
+        mutex: parking_lot::Mutex::new(false),
+        cvar: parking_lot::Condvar::new()
+    });
     let finished = AtomicUsize::new(0);
     let (clock_tx, clock_rx) = channel();
 
@@ -65,7 +69,7 @@ fn main() {
             start_cpu_component(
                 CpuComponentArgs {
                     cables: &cables,
-                    bus: &bus,
+                    bus: bus.clone(),
                     rx: rx,
                     finished: &finished,
                     clock_tx: clock_tx.clone()
@@ -81,11 +85,6 @@ fn main() {
         {
             let mut cables_writer = cables.write();
             cables_writer.reg_out[0] = true;
-        }
-        clock_tick(&clock_rx, &txs, &finished);
-        {
-            let mut cables_writer = cables.write();
-            cables_writer.reset();
             cables_writer.reg_in[1] = true;
         }
         clock_tick(&clock_rx, &txs, &finished);
