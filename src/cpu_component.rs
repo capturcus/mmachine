@@ -1,4 +1,4 @@
-use parking_lot::RwLock;
+use parking_lot::{RwLock, Mutex};
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::mpsc::Sender;
 
@@ -18,6 +18,7 @@ pub enum ControlCable {
     IntructionRegisterIn,
     AddMul,
     SubDiv,
+    AluOut,
     CounterEnable,
     CounterOut,
     CounterIn,
@@ -39,12 +40,12 @@ pub struct CpuComponentArgs<'a> {
 }
 
 pub trait CpuComponent {
-    fn step(&mut self, bus: Arc<Bus>, cables: &ControlCables);
+    fn step(&self, bus: Arc<Bus>, cables: &ControlCables);
 }
 
-pub fn start_cpu_component<'a, T: CpuComponent + std::marker::Send + ?Sized + 'static>(
+pub fn start_cpu_component<'a, T: CpuComponent + std::marker::Send + std::marker::Sync + ?Sized + 'static>(
     args: CpuComponentArgs<'a>,
-    mut component: Box<T>,
+    component: Arc<T>,
     scope: &'a std::thread::Scope<'a, '_>,
 ) {
     scope.spawn(move || loop {
@@ -60,7 +61,7 @@ pub struct ProgramCounterComponent {
 }
 
 impl CpuComponent for ProgramCounterComponent {
-    fn step(&mut self, bus: Arc<Bus>, cables: &ControlCables) {
+    fn step(&self, bus: Arc<Bus>, cables: &ControlCables) {
         if cables[ControlCable::CounterEnable as usize] {
             self.program_counter
                 .set(&MValue::from_u32(self.program_counter.as_u32() + 1));
@@ -77,16 +78,68 @@ impl CpuComponent for ProgramCounterComponent {
 pub struct RegisterComponent {
     pub reg_num: usize,
     pub value: MValue,
+    pub alu_tx: Arc<Mutex<mpsc::Sender<(usize, MValue)>>>,
 }
 
 impl CpuComponent for RegisterComponent {
-    fn step(&mut self, bus: Arc<Bus>, cables: &ControlCables) {
+    fn step(&self, bus: Arc<Bus>, cables: &ControlCables) {
         if cables[ControlCable::RegBase as usize + 2 * self.reg_num] {
             bus.read_into(&self.value);
+            {
+                let lock = self.alu_tx.lock();
+                lock.send((self.reg_num, self.value.clone()));
+            }
         }
         if cables[ControlCable::RegBase as usize + 2 * self.reg_num + 1] {
             bus.write_from(&self.value);
         }
         println!("register {} is now {}", self.reg_num, self.value.as_u32());
+    }
+}
+
+pub struct AluComponent {
+    pub reg_a: MValue,
+    pub reg_b: MValue,
+}
+
+impl AluComponent {
+    pub fn run(&self, reg_rx: mpsc::Receiver<(usize, MValue)>) {
+        loop {
+            let (reg_num, mvalue) = reg_rx.recv().unwrap();
+            if reg_num == 0 {
+                self.reg_a.set(&mvalue);
+            }
+            if reg_num == 1 {
+                self.reg_b.set(&mvalue);
+            }
+        }
+    }
+}
+
+impl CpuComponent for AluComponent {
+    fn step(&self, bus: Arc<Bus>, cables: &ControlCables) {
+        if cables[ControlCable::AluOut as usize] {
+            let ret = self.reg_a.clone();
+            if cables[ControlCable::AddMul as usize] {
+                // multiplication or division
+                if cables[ControlCable::SubDiv as usize] {
+                    // division
+                    ret.div(&self.reg_b);
+                } else {
+                    // multiplication
+                    ret.mul(&self.reg_b);
+                }
+            } else {
+                // addition or subtraction
+                if cables[ControlCable::SubDiv as usize] {
+                    // subtraction
+                    ret.sub(&self.reg_b);
+                } else {
+                    // addition
+                    ret.add(&self.reg_b);
+                }
+            }
+            bus.write_from(&ret);
+        }
     }
 }

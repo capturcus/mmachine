@@ -1,6 +1,6 @@
 #![feature(variant_count)]
 
-use parking_lot::{RwLock, RwLockWriteGuard};
+use parking_lot::{RwLock, RwLockWriteGuard, Mutex};
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::mpsc::Receiver;
@@ -52,32 +52,45 @@ fn main() {
     let bus = Arc::new(Bus::new());
     let finished = AtomicUsize::new(0);
     let (clock_tx, clock_rx) = channel();
+    let (alu_tx, alu_rx) = channel();
+    let alu_tx_arc = Arc::new(Mutex::new(alu_tx));
 
-    let components: Vec<Box<dyn CpuComponent + Send + Sync>> = vec![
-        Box::new(ProgramCounterComponent {
+    let mut txs = Vec::new();
+    let alu = Arc::new(AluComponent {
+        reg_a: MValue::from_u32(0),
+        reg_b: MValue::from_u32(0),
+    });
+    let components: Vec<Arc<dyn CpuComponent + Send + Sync>> = vec![
+        alu.clone(),
+        Arc::new(ProgramCounterComponent {
             program_counter: MValue::from_u32(0),
         }),
-        Box::new(RegisterComponent {
-            value: MValue::from_u32(10),
+        Arc::new(RegisterComponent {
+            value: MValue::from_u32(0),
             reg_num: 0,
+            alu_tx: alu_tx_arc.clone(),
         }),
-        Box::new(RegisterComponent {
+        Arc::new(RegisterComponent {
             value: MValue::from_u32(0),
             reg_num: 1,
+            alu_tx: alu_tx_arc.clone(),
         }),
-        Box::new(RegisterComponent {
+        Arc::new(RegisterComponent {
             value: MValue::from_u32(0),
             reg_num: 2,
+            alu_tx: alu_tx_arc.clone(),
         }),
-        Box::new(RegisterComponent {
-            value: MValue::from_u32(5),
+        Arc::new(RegisterComponent {
+            value: MValue::from_u32(10),
             reg_num: 3,
+            alu_tx: alu_tx_arc.clone(),
         }),
     ];
 
-    let mut txs = Vec::new();
-
     std::thread::scope(|s| {
+        s.spawn(||{
+            alu.run(alu_rx);
+        });
         for c in components {
             let (tx, rx) = channel();
             start_cpu_component(
@@ -99,8 +112,8 @@ fn main() {
         {
             let mut cables_writer = cables.write();
             *cables_writer = [false; CONTROL_CABLES_SIZE];
-            cables_writer[reg_out(0)] = true;
-            cables_writer[reg_in(1)] = true;
+            cables_writer[reg_out(3)] = true;
+            cables_writer[reg_in(0)] = true;
         }
         clock_tick(&clock_rx, &txs, &finished);
         {
@@ -108,6 +121,13 @@ fn main() {
             *cables_writer = [false; CONTROL_CABLES_SIZE];
             cables_writer[reg_out(3)] = true;
             cables_writer[reg_in(1)] = true;
+        }
+        clock_tick(&clock_rx, &txs, &finished);
+        {
+            let mut cables_writer = cables.write();
+            *cables_writer = [false; CONTROL_CABLES_SIZE];
+            cables_writer[ControlCable::AluOut as usize] = true;
+            cables_writer[reg_in(2)] = true;
         }
         clock_tick(&clock_rx, &txs, &finished);
     });
