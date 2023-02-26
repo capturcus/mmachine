@@ -1,6 +1,7 @@
 #![feature(variant_count)]
 
-use parking_lot::{RwLock, RwLockWriteGuard, Mutex};
+use parking_lot::{Mutex, RwLock, RwLockWriteGuard, Condvar};
+use std::io::{self, BufRead};
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::mpsc::Receiver;
@@ -19,34 +20,6 @@ mod tests;
 
 use crate::cpu_component::*;
 
-fn clock_tick(clock_rx: &Receiver<()>, txs: &Vec<Sender<()>>, finished: &AtomicUsize) {
-    for t in txs {
-        t.send(()).unwrap();
-    }
-    loop {
-        clock_rx.recv().unwrap();
-        let amount_finished = finished.load(SeqCst);
-        if amount_finished == txs.len() {
-            finished.store(0, SeqCst);
-            break;
-        }
-    }
-}
-
-fn clock_thread(clock_rx: Receiver<()>, txs: Vec<Sender<()>>, finished: &AtomicUsize) {
-    loop {
-        clock_tick(&clock_rx, &txs, finished);
-    }
-}
-
-fn reg_in(reg_num: usize) -> usize {
-    ControlCable::RegBase as usize + 2 * reg_num
-}
-
-fn reg_out(reg_num: usize) -> usize {
-    ControlCable::RegBase as usize + 2 * reg_num + 1
-}
-
 fn main() {
     let cables = RwLock::new([false; CONTROL_CABLES_SIZE]);
     let bus = Arc::new(Bus::new());
@@ -54,14 +27,22 @@ fn main() {
     let (clock_tx, clock_rx) = channel();
     let (alu_tx, alu_rx) = channel();
     let alu_tx_arc = Arc::new(Mutex::new(alu_tx));
+    let (clock_ctrl_tx, clock_ctrl_rx) = channel();
+    let alu_sync = Arc::new(AluSynchronizer{
+        mutex: Mutex::new(0),
+        cvar: Condvar::new(),
+    });
 
     let mut txs = Vec::new();
     let alu = Arc::new(AluComponent {
         reg_a: MValue::from_u32(0),
         reg_b: MValue::from_u32(0),
+        alu_sync: alu_sync.clone(),
     });
     let components: Vec<Arc<dyn CpuComponent + Send + Sync>> = vec![
-        alu.clone(),
+        Arc::new(ControlComponent{
+
+        }),
         Arc::new(ProgramCounterComponent {
             program_counter: MValue::from_u32(0),
         }),
@@ -69,26 +50,31 @@ fn main() {
             value: MValue::from_u32(0),
             reg_num: 0,
             alu_tx: alu_tx_arc.clone(),
+            alu_sync: alu_sync.clone(),
         }),
         Arc::new(RegisterComponent {
             value: MValue::from_u32(0),
             reg_num: 1,
             alu_tx: alu_tx_arc.clone(),
+            alu_sync: alu_sync.clone(),
         }),
         Arc::new(RegisterComponent {
             value: MValue::from_u32(0),
             reg_num: 2,
             alu_tx: alu_tx_arc.clone(),
+            alu_sync: alu_sync.clone(),
         }),
         Arc::new(RegisterComponent {
             value: MValue::from_u32(10),
             reg_num: 3,
             alu_tx: alu_tx_arc.clone(),
+            alu_sync: alu_sync.clone(),
         }),
+        alu.clone(),
     ];
 
     std::thread::scope(|s| {
-        s.spawn(||{
+        s.spawn(|| {
             alu.run(alu_rx);
         });
         for c in components {
@@ -106,29 +92,43 @@ fn main() {
             );
             txs.push(tx);
         }
-        // s.spawn(|| {
-        //     clock_thread(clock_rx, txs, &finished);
-        // });
-        {
-            let mut cables_writer = cables.write();
-            *cables_writer = [false; CONTROL_CABLES_SIZE];
-            cables_writer[reg_out(3)] = true;
-            cables_writer[reg_in(0)] = true;
+        let clock = ClockComponent {
+            clock_rx: clock_rx,
+            txs: txs,
+            finished: &finished,
+            clock_ctrl_rx: clock_ctrl_rx,
+            alu_sync: alu_sync.clone(),
+        };
+        s.spawn(move || {
+            clock.run();
+        });
+        // {
+        //     let mut cables_writer = cables.write();
+        //     *cables_writer = [false; CONTROL_CABLES_SIZE];
+        //     cables_writer[reg_out(3)] = true;
+        //     cables_writer[reg_in(0)] = true;
+        // }
+        // clock_tick(&clock_rx, &txs, &finished);
+        // {
+        //     let mut cables_writer = cables.write();
+        //     *cables_writer = [false; CONTROL_CABLES_SIZE];
+        //     cables_writer[reg_out(3)] = true;
+        //     cables_writer[reg_in(1)] = true;
+        // }
+        // clock_tick(&clock_rx, &txs, &finished);
+        // {
+        //     let mut cables_writer = cables.write();
+        //     *cables_writer = [false; CONTROL_CABLES_SIZE];
+        //     cables_writer[ControlCable::AluOut as usize] = true;
+        //     cables_writer[reg_in(2)] = true;
+        // }
+        // clock_tick(&clock_rx, &txs, &finished);
+        let mut line = String::new();
+        let stdin = io::stdin();
+
+        loop {
+            stdin.lock().read_line(&mut line).unwrap();
+            clock_ctrl_tx.send(()).unwrap();
         }
-        clock_tick(&clock_rx, &txs, &finished);
-        {
-            let mut cables_writer = cables.write();
-            *cables_writer = [false; CONTROL_CABLES_SIZE];
-            cables_writer[reg_out(3)] = true;
-            cables_writer[reg_in(1)] = true;
-        }
-        clock_tick(&clock_rx, &txs, &finished);
-        {
-            let mut cables_writer = cables.write();
-            *cables_writer = [false; CONTROL_CABLES_SIZE];
-            cables_writer[ControlCable::AluOut as usize] = true;
-            cables_writer[reg_in(2)] = true;
-        }
-        clock_tick(&clock_rx, &txs, &finished);
     });
 }
