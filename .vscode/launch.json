@@ -1,18 +1,26 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "C++ Launch",
-            "type": "cppdbg",
-            "request": "launch",
-            "program": "/home/marcin/mmachine/target/debug/mmachine",
-            "cwd": "${workspaceRoot}",
-            "linux": {
-              "MIMode": "gdb"
-            }
-          }
-    ]
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Launch",
+      "program": "/home/marcin/mmachine/target/debug/mmachine",
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "C++ Launch",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "/home/marcin/mmachine/target/debug/mmachine",
+      "cwd": "${workspaceRoot}",
+      "linux": {
+        "MIMode": "gdb"
+      }
+    }
+  ]
 }

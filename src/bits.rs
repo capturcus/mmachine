@@ -1,8 +1,9 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
 
-const BITNESS: usize = 16;
+pub const BITNESS: usize = 16;
 
+#[derive(Default, Debug)]
 pub struct MValue {
     val: [AtomicBool; BITNESS],
 }
