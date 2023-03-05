@@ -7,6 +7,7 @@ use std::sync::atomic::Ordering::SeqCst;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 mod bits;
 mod bus;
@@ -21,23 +22,18 @@ mod tests;
 use crate::cpu_component::*;
 
 fn main() {
-    let cables = RwLock::new([false; CONTROL_CABLES_SIZE]);
+    let cables = array_init::array_init(|_| AtomicBool::new(false));
     let bus = Arc::new(Bus::new());
     let finished = AtomicUsize::new(0);
     let (clock_tx, clock_rx) = channel();
     let (alu_tx, alu_rx) = channel();
     let alu_tx_arc = Arc::new(Mutex::new(alu_tx));
     let (clock_ctrl_tx, clock_ctrl_rx) = channel();
-    let alu_sync = Arc::new(AluSynchronizer{
-        mutex: Mutex::new(0),
-        cvar: Condvar::new(),
-    });
 
     let mut txs = Vec::new();
     let alu = Arc::new(AluComponent {
         reg_a: MValue::from_u32(0),
         reg_b: MValue::from_u32(0),
-        alu_sync: alu_sync.clone(),
     });
     let components: Vec<Arc<dyn CpuComponent + Send + Sync>> = vec![
         Arc::new(ControlComponent{
@@ -50,25 +46,21 @@ fn main() {
             value: MValue::from_u32(0),
             reg_num: 0,
             alu_tx: alu_tx_arc.clone(),
-            alu_sync: alu_sync.clone(),
         }),
         Arc::new(RegisterComponent {
             value: MValue::from_u32(0),
             reg_num: 1,
             alu_tx: alu_tx_arc.clone(),
-            alu_sync: alu_sync.clone(),
         }),
         Arc::new(RegisterComponent {
             value: MValue::from_u32(0),
             reg_num: 2,
             alu_tx: alu_tx_arc.clone(),
-            alu_sync: alu_sync.clone(),
         }),
         Arc::new(RegisterComponent {
             value: MValue::from_u32(10),
             reg_num: 3,
             alu_tx: alu_tx_arc.clone(),
-            alu_sync: alu_sync.clone(),
         }),
         alu.clone(),
     ];
@@ -97,7 +89,6 @@ fn main() {
             txs: txs,
             finished: &finished,
             clock_ctrl_rx: clock_ctrl_rx,
-            alu_sync: alu_sync.clone(),
         };
         s.spawn(move || {
             clock.run();
