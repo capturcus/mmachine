@@ -1,12 +1,10 @@
 #![feature(variant_count)]
 
-use parking_lot::{Condvar, Mutex, RwLock, RwLockWriteGuard};
+use parking_lot::{Mutex};
 use std::io::{self, BufRead};
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering::SeqCst;
-use std::sync::mpsc::Receiver;
-use std::sync::mpsc::{channel, Sender};
+use std::sync::mpsc::{channel};
 use std::sync::Arc;
 
 mod bits;
@@ -15,6 +13,8 @@ mod cpu_component;
 
 use crate::bits::MValue;
 use crate::bus::Bus;
+use crate::cpu_component::ControlCable::*;
+use crate::cpu_component::{reg_in, reg_out};
 
 #[cfg(test)]
 mod tests;
@@ -38,7 +38,6 @@ fn main() {
     });
 
     let components: Vec<Arc<dyn CpuComponent + Send + Sync>> = vec![
-        Arc::new(ControlComponent::new()),
         Arc::new(ProgramCounterComponent {
             program_counter: MValue::from_u32(0),
         }),
@@ -93,13 +92,24 @@ fn main() {
             );
             txs.push(tx);
         }
-        let clock = ClockComponent {
+        let clock = ControlComponent {
             clock_rx: clock_rx,
             txs: txs,
             finished: &finished,
             alu_clock_rx: alu_clock_rx,
             sent_to_alu: sent_to_alu.clone(),
             cables: &cables,
+            bus: bus.clone(),
+            test_instruction: vec![
+                    vec![MemoryAddressIn as usize, reg_out(0)],
+                    vec![RamIn as usize, reg_out(1)],
+                    vec![MemoryAddressIn as usize, reg_out(2)],
+                    vec![MemoryAddressIn as usize, reg_out(0)],
+                    vec![RamOut as usize, reg_in(3)],
+                    vec![CounterEnable as usize],
+                    vec![Halt as usize],
+                ],
+            microcode_counter: AtomicUsize::new(0),
         };
         s.spawn(move || {
             clock.run();

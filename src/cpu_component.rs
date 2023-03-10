@@ -121,11 +121,11 @@ pub struct RegisterComponent {
     pub sent_to_alu: Arc<AtomicUsize>,
 }
 
-fn reg_in(reg_num: usize) -> usize {
+pub fn reg_in(reg_num: usize) -> usize {
     RegBase as usize + 2 * reg_num
 }
 
-fn reg_out(reg_num: usize) -> usize {
+pub fn reg_out(reg_num: usize) -> usize {
     RegBase as usize + 2 * reg_num + 1
 }
 
@@ -194,18 +194,22 @@ impl CpuComponent for AluComponent {
     }
 }
 
-pub struct ClockComponent<'a> {
+pub struct ControlComponent<'a> {
     pub clock_rx: Receiver<()>,
     pub txs: Vec<Sender<()>>,
     pub finished: &'a AtomicUsize,
     pub alu_clock_rx: Receiver<()>,
     pub sent_to_alu: Arc<AtomicUsize>,
     pub cables: &'a ControlCables,
+    pub bus: Arc<Bus>,
+    pub test_instruction: Vec<Vec<usize>>,
+    pub microcode_counter: AtomicUsize,
 }
 
-impl<'a> ClockComponent<'a> {
+impl<'a> ControlComponent<'a> {
     pub fn run(&self) {
         loop {
+            self.step(self.bus.clone(), self.cables);
             if self.cables.load(Halt) {
                 println!("clock: halt");
                 break;
@@ -230,34 +234,15 @@ impl<'a> ClockComponent<'a> {
     }
 }
 
-pub struct ControlComponent {
-    test_instruction: Vec<Vec<usize>>,
-    microcode_counter: AtomicUsize,
-}
-
-impl ControlComponent {
-    pub fn new() -> Self {
-        let mut ret = ControlComponent {
-            test_instruction: Vec::new(),
-            microcode_counter: AtomicUsize::new(0),
-        };
-        ret.test_instruction = vec![
-            vec![MemoryAddressIn as usize, reg_out(0)],
-            vec![RamIn as usize, reg_out(1)],
-            vec![MemoryAddressIn as usize, reg_out(2)],
-            vec![MemoryAddressIn as usize, reg_out(0)],
-            vec![RamOut as usize, reg_in(3)],
-            vec![Halt as usize],
-        ];
-        ret
-    }
-}
-
-impl CpuComponent for ControlComponent {
+impl<'a> CpuComponent for ControlComponent<'a> {
     fn step(&self, bus: Arc<Bus>, cables: &ControlCables) {
         cables.reset();
         let current_microcodes = &self.test_instruction[self.microcode_counter.load(SeqCst)];
         for m in current_microcodes {
+            if *m == Halt as usize {
+                self.microcode_counter.store(0, SeqCst);
+                return;
+            }
             cables[*m].store(true, SeqCst);
         }
         self.microcode_counter.fetch_add(1, SeqCst);
