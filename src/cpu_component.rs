@@ -18,8 +18,6 @@ pub enum ControlCable {
     AddMul,
     SubDiv,
     AluOut,
-    InputOut,
-    OutputIn,
     RegBase,
 }
 
