@@ -1,7 +1,7 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 use crate::bits::MValue;
-use parking_lot::{Mutex, Condvar};
+use parking_lot::Mutex;
 
 pub struct Bus {
     value: MValue,
