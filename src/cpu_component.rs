@@ -4,8 +4,8 @@ use std::sync::atomic::Ordering::SeqCst;
 
 use crate::bits::{MValue, BITNESS};
 use crate::bus::Bus;
-use std::sync::atomic::{AtomicBool, AtomicUsize, AtomicPtr};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
 pub const REGISTERS_NUM: usize = 8;
@@ -151,6 +151,7 @@ impl AluComponent {
         reg_rx: Receiver<(usize, MValue)>,
         alu_clock_tx: Sender<()>,
         ctrl_tx: Sender<MValue>,
+        cables: &ControlCables,
     ) {
         loop {
             let (reg_num, mvalue) = reg_rx.recv().unwrap();
@@ -163,6 +164,8 @@ impl AluComponent {
             if reg_num == INSTRUCTION_REG_NUM {
                 ctrl_tx.send(mvalue).unwrap();
             }
+            cables.store(self.reg_a.as_u32() > self.reg_b.as_u32(), Greater);
+            cables.store(self.reg_a.as_u32() == self.reg_b.as_u32(), Equal);
             alu_clock_tx.send(()).unwrap();
         }
     }
@@ -273,8 +276,13 @@ impl CpuComponent for RamComponent {
         if cables.load(RamIn) {
             bus.read_into(&self.ram_register);
             if cables.load(MemoryIsIO) {
-                self.output_tx.lock()
-                    .send((self.memory_address_register.clone(), self.ram_register.clone())).unwrap();
+                self.output_tx
+                    .lock()
+                    .send((
+                        self.memory_address_register.clone(),
+                        self.ram_register.clone(),
+                    ))
+                    .unwrap();
             } else {
                 let memory_index = self.memory_address_register.as_u32() as usize;
                 self.memory[memory_index].set(&self.ram_register);
@@ -282,7 +290,10 @@ impl CpuComponent for RamComponent {
         }
         if cables.load(RamOut) {
             if cables.load(MemoryIsIO) {
-                self.input_req_tx.lock().send(self.memory_address_register.clone()).unwrap();
+                self.input_req_tx
+                    .lock()
+                    .send(self.memory_address_register.clone())
+                    .unwrap();
                 let v = self.input_rx.lock().recv().unwrap();
                 if v.is_some() {
                     bus.write_from(&v.unwrap());

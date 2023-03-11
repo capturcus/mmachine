@@ -84,7 +84,7 @@ fn main() {
 
     std::thread::scope(|s| {
         s.spawn(|| {
-            alu.run(alu_rx, alu_clock_tx, ctrl_tx);
+            alu.run(alu_rx, alu_clock_tx, ctrl_tx, &cables);
         });
         s.spawn(move || {
             run_input(input_tx, input_req_rx);
