@@ -1,5 +1,6 @@
 #![feature(variant_count)]
 
+use bits::BITNESS;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::io::{self, BufRead};
@@ -42,7 +43,23 @@ fn run_output(output_rx: Receiver<(MValue, MValue)>) {
     }
 }
 
+fn load_ram(args: Vec<String>) -> Box<[MValue; RAM_SIZE]> {
+    let contents = std::fs::read(args[1].clone()).unwrap();
+    let mut ret = Vec::new();
+    for i in 0..contents.len()/2 {
+        let x: u32 = (contents[2*i] as u32) << 8 | contents[2*i+1] as u32;
+        ret.push(MValue::from_u32(x));
+    }
+    for i in 0..ret.len() {
+        println!("{}", ret[i].as_string());
+    }
+    ret.resize(RAM_SIZE, MValue::from_u32(0));
+    ret.try_into().unwrap()
+}
+
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+
     let cables = array_init::array_init(|_| AtomicBool::new(false));
     let bus = Arc::new(Bus::new());
     let finished = AtomicUsize::new(0);
@@ -65,7 +82,7 @@ fn main() {
     let mut components: Vec<Arc<dyn CpuComponent + Send + Sync>> = vec![
         alu.clone(),
         Arc::new(RamComponent {
-            memory: vec![MValue::from_u32(0); RAM_SIZE].try_into().unwrap(),
+            memory: load_ram(args),
             memory_address_register: MValue::default(),
             ram_register: MValue::default(),
             output_tx: Arc::new(Mutex::new(output_tx)),
@@ -75,7 +92,7 @@ fn main() {
     ];
     for i in 0..REGISTERS_NUM {
         components.push(Arc::new(RegisterComponent {
-            value: MValue::from_u32(i as u32),
+            value: MValue::from_u32(0),
             reg_num: i,
             alu_tx: alu_tx_arc.clone(),
             sent_to_alu: sent_to_alu.clone(),

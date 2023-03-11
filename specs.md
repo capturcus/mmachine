@@ -21,6 +21,11 @@ PUSH   - 001101
 POP    - 001110
 OUT    - 001111
 IN     - 010000
+RET    - 010001
+INT    - 010010
+EOI    - 010011
+INC    - 010100
+DEC    - 010101
 
 o - operation
 s - source
