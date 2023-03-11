@@ -19,8 +19,8 @@ JL     - 001011
 JLE    - 001100
 PUSH   - 001101
 POP    - 001110
-GETEV  - 001111
-SENDEV - 010000
+OUT    - 001111
+IN     - 010000
 
 o - operation
 s - source

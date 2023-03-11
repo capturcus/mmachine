@@ -1,10 +1,11 @@
 use parking_lot::Mutex;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::Ordering::SeqCst;
 
 use crate::bits::{MValue, BITNESS};
 use crate::bus::Bus;
-use std::sync::atomic::{AtomicBool, AtomicUsize};
-use std::sync::mpsc::{Receiver, Sender, TryRecvError};
+use std::sync::atomic::{AtomicBool, AtomicUsize, AtomicPtr};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::Arc;
 
 pub const REGISTERS_NUM: usize = 8;
@@ -15,9 +16,16 @@ pub enum ControlCable {
     MemoryAddressIn,
     RamIn,
     RamOut,
+    MemoryIsIO,
     AddMul,
     SubDiv,
     AluOut,
+
+    Interrupt,
+
+    Equal,
+    Greater,
+
     RegBase,
 }
 
@@ -227,9 +235,8 @@ impl<'a> ControlComponent<'a> {
             self.sent_to_alu.store(0, SeqCst);
             match ctrl_rx.try_recv() {
                 Ok(mvalue) => self.instruction_register.set(&mvalue),
-                Err(_) => {},
+                Err(_) => {}
             }
-            
         }
     }
 }
@@ -249,24 +256,42 @@ pub struct RamComponent {
     pub memory: Box<[MValue; RAM_SIZE]>,
     pub memory_address_register: MValue,
     pub ram_register: MValue,
+    pub output_tx: Arc<Mutex<Sender<(MValue, MValue)>>>,
+    pub input_req_tx: Arc<Mutex<Sender<MValue>>>,
+    pub input_rx: Arc<Mutex<Receiver<Option<MValue>>>>,
 }
 
 impl CpuComponent for RamComponent {
     fn step(&self, bus: Arc<Bus>, cables: &ControlCables) {
         if cables.load(MemoryAddressIn) {
             bus.read_into(&self.memory_address_register);
-            let memory_index = self.memory_address_register.as_u32() as usize;
-            self.ram_register.set(&self.memory[memory_index]);
+            if !cables.load(MemoryIsIO) {
+                let memory_index = self.memory_address_register.as_u32() as usize;
+                self.ram_register.set(&self.memory[memory_index]);
+            }
         }
         if cables.load(RamIn) {
             bus.read_into(&self.ram_register);
-            let memory_index = self.memory_address_register.as_u32() as usize;
-            self.memory[memory_index].set(&self.ram_register);
+            if cables.load(MemoryIsIO) {
+                self.output_tx.lock()
+                    .send((self.memory_address_register.clone(), self.ram_register.clone())).unwrap();
+            } else {
+                let memory_index = self.memory_address_register.as_u32() as usize;
+                self.memory[memory_index].set(&self.ram_register);
+            }
         }
         if cables.load(RamOut) {
-            let memory_index = self.memory_address_register.as_u32() as usize;
-            self.ram_register.set(&self.memory[memory_index]);
-            bus.write_from(&self.ram_register);
+            if cables.load(MemoryIsIO) {
+                self.input_req_tx.lock().send(self.memory_address_register.clone()).unwrap();
+                let v = self.input_rx.lock().recv().unwrap();
+                if v.is_some() {
+                    bus.write_from(&v.unwrap());
+                }
+            } else {
+                let memory_index = self.memory_address_register.as_u32() as usize;
+                self.ram_register.set(&self.memory[memory_index]);
+                bus.write_from(&self.ram_register);
+            }
         }
     }
 }
