@@ -12,11 +12,15 @@ use std::sync::Arc;
 mod bits;
 mod bus;
 mod cpu_component;
+mod microcodes;
 
 use crate::bits::MValue;
 use crate::bus::Bus;
 use crate::cpu_component::ControlCable::*;
 use crate::cpu_component::{reg_in, reg_out};
+
+#[macro_use]
+extern crate lazy_static;
 
 #[cfg(test)]
 mod tests;
@@ -132,18 +136,9 @@ fn main() {
             sent_to_alu: sent_to_alu.clone(),
             cables: &cables,
             bus: bus.clone(),
-            test_instruction: vec![
-                vec![MemoryAddressIn as usize, reg_out(0)],
-                vec![RamIn as usize, reg_out(1)],
-                vec![MemoryAddressIn as usize, reg_out(2)],
-                vec![MemoryAddressIn as usize, reg_out(0)],
-                vec![RamOut as usize, reg_in(3)],
-                vec![MemoryAddressIn as usize, reg_out(5)],
-                vec![MemoryIsIO as usize, RamIn as usize, reg_out(3)],
-                vec![Halt as usize],
-            ],
             microcode_counter: AtomicUsize::new(0),
             instruction_register: MValue::from_u32(0),
+            current_instruction: microcodes::INSTRUCTION::_FETCH,
         };
         s.spawn(move || {
             clock.run(ctrl_rx);

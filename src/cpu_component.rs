@@ -1,12 +1,13 @@
 use parking_lot::Mutex;
-use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::Ordering::SeqCst;
 
 use crate::bits::{MValue, BITNESS};
 use crate::bus::Bus;
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use crate::microcodes::{INSTRUCTION, MICROCODES};
+use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
+use crate::microcodes::INSTRUCTION::_FETCH;
 
 pub const REGISTERS_NUM: usize = 8;
 pub const RAM_SIZE: usize = 1 << BITNESS;
@@ -35,7 +36,7 @@ pub const CONTROL_CABLES_SIZE: usize =
     std::mem::variant_count::<ControlCable>() + REGISTERS_NUM * 4 - 1;
 pub const INSTRUCTION_REG_NUM: usize = REGISTERS_NUM - 1;
 pub const STACK_POINTER_REG_NUM: usize = REGISTERS_NUM - 2;
-pub const PROGRAM_COUNTER: usize = REGISTERS_NUM - 3;
+pub const PROGRAM_COUNTER_REG_NUM: usize = REGISTERS_NUM - 3;
 
 pub type ControlCables = [AtomicBool; CONTROL_CABLES_SIZE];
 
@@ -207,8 +208,8 @@ pub struct ControlComponent<'a> {
     pub sent_to_alu: Arc<AtomicUsize>,
     pub cables: &'a ControlCables,
     pub bus: Arc<Bus>,
-    pub test_instruction: Vec<Vec<usize>>,
     pub microcode_counter: AtomicUsize,
+    pub current_instruction: INSTRUCTION,
     pub instruction_register: MValue,
 }
 
@@ -247,11 +248,18 @@ impl<'a> ControlComponent<'a> {
 impl<'a> ControlComponent<'a> {
     fn set_cables(&self, cables: &ControlCables) {
         cables.reset();
-        let current_microcodes = &self.test_instruction[self.microcode_counter.load(SeqCst)];
-        for m in current_microcodes {
+        let current_instr_microcodes = MICROCODES.get(&self.current_instruction).unwrap();
+        let current_step_microcodes = &current_instr_microcodes[self.microcode_counter.load(SeqCst)];
+        for m in current_step_microcodes {
             cables[*m].store(true, SeqCst);
         }
-        self.microcode_counter.fetch_add(1, SeqCst);
+        if self.microcode_counter.load(SeqCst) < current_instr_microcodes.len() - 1 {
+            self.microcode_counter.fetch_add(1, SeqCst);
+        } else {
+            if self.current_instruction == _FETCH {
+                // this was a fetch, we have a new instruction to decode in the instruction register
+            }
+        }
     }
 }
 

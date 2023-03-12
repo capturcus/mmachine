@@ -26,6 +26,7 @@ INT    - 010010
 EOI    - 010011
 INC    - 010100
 DEC    - 010101
+HLT    - 010110
 
 o - operation
 s - source
