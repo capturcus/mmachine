@@ -1,10 +1,13 @@
 use std::collections::HashMap;
+use std::vec;
 
 use crate::cpu_component::{
     reg_in, reg_inc, reg_out, INSTRUCTION_REG_NUM, PROGRAM_COUNTER_REG_NUM,
 };
 
 use crate::cpu_component::ControlCable::*;
+
+pub type Microcodes = Vec<Vec<usize>>;
 
 #[derive(PartialEq, Eq, Hash)]
 pub enum INSTRUCTION {
@@ -35,23 +38,25 @@ pub enum INSTRUCTION {
 
 use INSTRUCTION::*;
 
-lazy_static! {
-    pub static ref MICROCODES: HashMap<INSTRUCTION, Vec<Vec<usize>>> = {
-        let mut m = HashMap::new();
-        m.insert(
-            _FETCH,
-            vec![
-                vec![reg_out(PROGRAM_COUNTER_REG_NUM), MemoryAddressIn as usize],
-                vec![
-                    RamOut as usize,
-                    reg_in(INSTRUCTION_REG_NUM),
-                    reg_inc(PROGRAM_COUNTER_REG_NUM),
-                ],
-            ],
-        );
-        m.insert(HLT, vec![
-            vec![Halt as usize]
-        ]);
-        m
-    };
+const OPCODE_SHIFT: u8 = 10;
+const SOURCE_SHIFT: u8 = 5;
+const OPCODE_MASK: u32 = 0b1111110000000000;
+const SOURCE_INDIRECT_MASK: u32 = 0b0000001000000000;
+const SOURCE_MASK: u32 = 0b0000000111100000;
+const DEST_INDIRECT_MASK: u32 = 0b0000000000010000;
+const DEST_MASK: u32 = 0b0000000000001111;
+
+pub fn create_fetch_microcodes() -> Microcodes {
+    vec![
+        vec![reg_out(PROGRAM_COUNTER_REG_NUM), MemoryAddressIn as usize],
+        vec![
+            RamOut as usize,
+            reg_in(INSTRUCTION_REG_NUM),
+            reg_inc(PROGRAM_COUNTER_REG_NUM),
+        ],
+    ]
+}
+
+pub fn create_microcodes(instruction: u32) -> Microcodes {
+    vec![vec![reg_inc(PROGRAM_COUNTER_REG_NUM)], vec![Halt as usize]]
 }

@@ -1,6 +1,7 @@
 #![feature(variant_count)]
 
 use bits::BITNESS;
+use microcodes::{create_fetch_microcodes};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::io::{self, BufRead};
@@ -138,7 +139,7 @@ fn main() {
             bus: bus.clone(),
             microcode_counter: AtomicUsize::new(0),
             instruction_register: MValue::from_u32(0),
-            current_instruction: microcodes::INSTRUCTION::_FETCH,
+            current_microcodes: Arc::new(Mutex::new(create_fetch_microcodes())),
         };
         s.spawn(move || {
             clock.run(ctrl_rx);

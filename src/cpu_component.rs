@@ -1,13 +1,14 @@
 use parking_lot::Mutex;
 use std::sync::atomic::Ordering::SeqCst;
+use std::vec;
 
 use crate::bits::{MValue, BITNESS};
 use crate::bus::Bus;
-use crate::microcodes::{INSTRUCTION, MICROCODES};
+use crate::microcodes::INSTRUCTION::_FETCH;
+use crate::microcodes::{create_microcodes, Microcodes, INSTRUCTION};
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
-use crate::microcodes::INSTRUCTION::_FETCH;
 
 pub const REGISTERS_NUM: usize = 8;
 pub const RAM_SIZE: usize = 1 << BITNESS;
@@ -209,7 +210,7 @@ pub struct ControlComponent<'a> {
     pub cables: &'a ControlCables,
     pub bus: Arc<Bus>,
     pub microcode_counter: AtomicUsize,
-    pub current_instruction: INSTRUCTION,
+    pub current_microcodes: Arc<Mutex<Microcodes>>,
     pub instruction_register: MValue,
 }
 
@@ -248,18 +249,18 @@ impl<'a> ControlComponent<'a> {
 impl<'a> ControlComponent<'a> {
     fn set_cables(&self, cables: &ControlCables) {
         cables.reset();
-        let current_instr_microcodes = MICROCODES.get(&self.current_instruction).unwrap();
-        let current_step_microcodes = &current_instr_microcodes[self.microcode_counter.load(SeqCst)];
+        let mut current_microcodes = self.current_microcodes.lock();
+
+        if self.microcode_counter.load(SeqCst) == current_microcodes.len() {
+            *current_microcodes = create_microcodes(self.instruction_register.as_u32());
+            self.microcode_counter.store(0, SeqCst);
+        }
+
+        let current_step_microcodes = &current_microcodes[self.microcode_counter.load(SeqCst)];
         for m in current_step_microcodes {
             cables[*m].store(true, SeqCst);
         }
-        if self.microcode_counter.load(SeqCst) < current_instr_microcodes.len() - 1 {
-            self.microcode_counter.fetch_add(1, SeqCst);
-        } else {
-            if self.current_instruction == _FETCH {
-                // this was a fetch, we have a new instruction to decode in the instruction register
-            }
-        }
+        self.microcode_counter.fetch_add(1, SeqCst);
     }
 }
 
