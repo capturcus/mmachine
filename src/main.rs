@@ -1,9 +1,7 @@
 #![feature(variant_count)]
 
-use bits::BITNESS;
 use microcodes::{create_fetch_microcodes};
 use parking_lot::Mutex;
-use std::collections::HashMap;
 use std::io::{self, BufRead};
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
@@ -17,11 +15,11 @@ mod microcodes;
 
 use crate::bits::MValue;
 use crate::bus::Bus;
-use crate::cpu_component::ControlCable::*;
-use crate::cpu_component::{reg_in, reg_out};
 
-#[macro_use]
 extern crate lazy_static;
+extern crate num;
+#[macro_use]
+extern crate num_derive;
 
 #[cfg(test)]
 mod tests;
@@ -139,7 +137,7 @@ fn main() {
             bus: bus.clone(),
             microcode_counter: AtomicUsize::new(0),
             instruction_register: MValue::from_u32(0),
-            current_microcodes: Arc::new(Mutex::new(create_fetch_microcodes())),
+            current_microcodes: Arc::new(Mutex::new(create_fetch_microcodes(true))),
         };
         s.spawn(move || {
             clock.run(ctrl_rx);

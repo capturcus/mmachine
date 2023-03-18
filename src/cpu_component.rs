@@ -1,11 +1,9 @@
 use parking_lot::Mutex;
 use std::sync::atomic::Ordering::SeqCst;
-use std::vec;
 
 use crate::bits::{MValue, BITNESS};
 use crate::bus::Bus;
-use crate::microcodes::INSTRUCTION::_FETCH;
-use crate::microcodes::{create_microcodes, Microcodes, INSTRUCTION};
+use crate::microcodes::{create_microcodes, Microcodes};
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
@@ -41,7 +39,7 @@ pub const PROGRAM_COUNTER_REG_NUM: usize = REGISTERS_NUM - 3;
 
 pub type ControlCables = [AtomicBool; CONTROL_CABLES_SIZE];
 
-trait ControlCablesExt {
+pub trait ControlCablesExt {
     fn reset(&self);
     fn load(&self, c: ControlCable) -> bool;
     fn store(&self, val: bool, c: ControlCable);
@@ -138,7 +136,17 @@ impl<'a> CpuComponent for RegisterComponent {
         if cables[reg_dec(self.reg_num)].load(SeqCst) {
             self.value.sub(&MValue::from_u32(1));
         }
-        println!("register {} is now {}", self.reg_num, self.value.as_u32());
+        let mut reg_name: String = self.reg_num.to_string();
+        if self.reg_num == PROGRAM_COUNTER_REG_NUM {
+            reg_name = "pc".to_string();
+        }
+        if self.reg_num == STACK_POINTER_REG_NUM {
+            reg_name = "sp".to_string();
+        }
+        if self.reg_num == INSTRUCTION_REG_NUM {
+            reg_name = "ir".to_string();
+        }
+        println!("register {} is now {}", reg_name, self.value.as_u32());
     }
 }
 
@@ -252,7 +260,7 @@ impl<'a> ControlComponent<'a> {
         let mut current_microcodes = self.current_microcodes.lock();
 
         if self.microcode_counter.load(SeqCst) == current_microcodes.len() {
-            *current_microcodes = create_microcodes(self.instruction_register.as_u32());
+            *current_microcodes = create_microcodes(self.instruction_register.as_u32(), cables);
             self.microcode_counter.store(0, SeqCst);
         }
 
