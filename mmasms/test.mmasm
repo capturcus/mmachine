@@ -1,0 +1,28 @@
+mov a b   ; movs a to b
+add c
+sub d
+mul e
+div d
+call a
+je a
+jne a
+jg a
+jge a
+jl a
+jle a
+push a
+pop a
+out a b
+in a b
+;int
+;eoi
+inc a
+dec b
+load a b
+store a b
+ldcnst 12345
+ldcnst siemka
+hlt
+
+siemka:
+out a b

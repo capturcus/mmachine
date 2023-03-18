@@ -1,30 +1,14 @@
-#![feature(variant_count)]
+use std::sync::atomic::AtomicBool;
 
-use microcodes::{create_fetch_microcodes};
+use mmachine::bits::MValue;
+use mmachine::bus::Bus;
+use mmachine::cpu_component::{AluComponent, CpuComponent, RamComponent, RAM_SIZE, REGISTERS_NUM, RegisterComponent, start_cpu_component, CpuComponentArgs, ControlComponent};
+use mmachine::microcodes::{create_fetch_microcodes};
 use parking_lot::Mutex;
 use std::io::{self, BufRead};
-use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
-
-mod bits;
-mod bus;
-mod cpu_component;
-mod microcodes;
-
-use crate::bits::MValue;
-use crate::bus::Bus;
-
-extern crate lazy_static;
-extern crate num;
-#[macro_use]
-extern crate num_derive;
-
-#[cfg(test)]
-mod tests;
-
-use crate::cpu_component::*;
 
 fn run_input(input_tx: Sender<Option<MValue>>, input_req_rx: Receiver<MValue>) {
     loop {

@@ -12,3 +12,7 @@ parking_lot = "0.12.1"
 num = "0.4"
 num-derive = "0.3"
 num-traits = "0.2"
+phf = { version = "0.11", features = ["macros"] }
+
+[[bin]]
+name = "asm"

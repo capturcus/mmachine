@@ -9,7 +9,7 @@ use crate::cpu_component::ControlCable::*;
 
 pub type Microcodes = Vec<Vec<usize>>;
 
-#[derive(PartialEq, Eq, Hash, FromPrimitive)]
+#[derive(PartialEq, Eq, Hash, FromPrimitive, Debug)]
 pub enum INSTRUCTION {
     HLT = 0b000000,
     MOV = 0b000001,
