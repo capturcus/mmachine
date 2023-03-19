@@ -1,9 +1,14 @@
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
+use clap::Parser;
 use mmachine::bits::MValue;
 use mmachine::bus::Bus;
-use mmachine::cpu_component::{AluComponent, CpuComponent, RamComponent, RAM_SIZE, REGISTERS_NUM, RegisterComponent, start_cpu_component, CpuComponentArgs, ControlComponent};
-use mmachine::microcodes::{create_fetch_microcodes};
+use mmachine::cpu_component::{
+    start_cpu_component, AluComponent, ControlComponent, CpuComponent, CpuComponentArgs,
+    RamComponent, RegisterComponent, RAM_SIZE, REGISTERS_NUM,
+};
+use mmachine::microcodes::create_fetch_microcodes;
 use parking_lot::Mutex;
 use std::io::{self, BufRead};
 use std::sync::atomic::AtomicUsize;
@@ -30,22 +35,30 @@ fn run_output(output_rx: Receiver<(MValue, MValue)>) {
     }
 }
 
-fn load_ram(args: Vec<String>) -> Box<[MValue; RAM_SIZE]> {
-    let contents = std::fs::read(args[1].clone()).unwrap();
+fn load_ram(path: PathBuf) -> Box<[MValue; RAM_SIZE]> {
+    let contents = std::fs::read(path).unwrap();
     let mut ret = Vec::new();
-    for i in 0..contents.len()/2 {
-        let x: u32 = (contents[2*i] as u32) << 8 | contents[2*i+1] as u32;
+    for i in 0..contents.len() / 2 {
+        let x: u32 = (contents[2 * i] as u32) << 8 | contents[2 * i + 1] as u32;
         ret.push(MValue::from_u32(x));
-    }
-    for i in 0..ret.len() {
-        println!("{}", ret[i].as_string());
     }
     ret.resize(RAM_SIZE, MValue::from_u32(0));
     ret.try_into().unwrap()
 }
 
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// the binary file that will be loaded at 0 at startup
+    bin_file: PathBuf,
+
+    /// whether to wait for enter to step
+    #[arg(short, long, default_value_t = false)]
+    step: bool,
+}
+
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    let args = Args::parse();
 
     let cables = array_init::array_init(|_| AtomicBool::new(false));
     let bus = Arc::new(Bus::new());
@@ -59,6 +72,7 @@ fn main() {
     let (output_tx, output_rx) = channel();
     let (input_tx, input_rx) = channel();
     let (input_req_tx, input_req_rx) = channel();
+    let (clock_step_tx, clock_step_rx) = channel();
 
     let mut txs = Vec::new();
     let alu = Arc::new(AluComponent {
@@ -69,7 +83,7 @@ fn main() {
     let mut components: Vec<Arc<dyn CpuComponent + Send + Sync>> = vec![
         alu.clone(),
         Arc::new(RamComponent {
-            memory: load_ram(args),
+            memory: load_ram(args.bin_file),
             memory_address_register: MValue::default(),
             ram_register: MValue::default(),
             output_tx: Arc::new(Mutex::new(output_tx)),
@@ -85,6 +99,8 @@ fn main() {
             sent_to_alu: sent_to_alu.clone(),
         }));
     }
+
+    let print_components = components.clone();
 
     std::thread::scope(|s| {
         s.spawn(|| {
@@ -122,16 +138,23 @@ fn main() {
             microcode_counter: AtomicUsize::new(0),
             instruction_register: MValue::from_u32(0),
             current_microcodes: Arc::new(Mutex::new(create_fetch_microcodes(true))),
+            clock_step_rx: clock_step_rx,
+            clock_step: args.step,
         };
         s.spawn(move || {
             clock.run(ctrl_rx);
         });
-
         let mut line = String::new();
         let stdin = io::stdin();
 
         loop {
             stdin.lock().read_line(&mut line).unwrap();
+            if args.step {
+                for c in &print_components {
+                    c.step_print();
+                }
+                clock_step_tx.send(()).unwrap();
+            }
         }
     });
 }

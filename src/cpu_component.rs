@@ -1,4 +1,5 @@
 use parking_lot::Mutex;
+use std::fmt::Display;
 use std::sync::atomic::Ordering::SeqCst;
 
 use crate::bits::{MValue, BITNESS};
@@ -70,6 +71,7 @@ pub struct CpuComponentArgs<'a> {
 
 pub trait CpuComponent {
     fn step(&self, bus: Arc<Bus>, cables: &ControlCables);
+    fn step_print(&self);
 }
 
 pub fn start_cpu_component<
@@ -136,17 +138,22 @@ impl<'a> CpuComponent for RegisterComponent {
         if cables[reg_dec(self.reg_num)].load(SeqCst) {
             self.value.sub(&MValue::from_u32(1));
         }
+    }
+
+    fn step_print(&self) {
         let mut reg_name: String = self.reg_num.to_string();
         if self.reg_num == PROGRAM_COUNTER_REG_NUM {
             reg_name = "pc".to_string();
-        }
+        } else
         if self.reg_num == STACK_POINTER_REG_NUM {
             reg_name = "sp".to_string();
-        }
+        } else
         if self.reg_num == INSTRUCTION_REG_NUM {
             reg_name = "ir".to_string();
+        } else {
+            reg_name = ((self.reg_num as u8 + 97) as char).to_string();
         }
-        println!("register {} is now {}", reg_name, self.value.as_u32());
+        println!("reg {reg_name}: {}", self.value.as_u32());
     }
 }
 
@@ -207,6 +214,10 @@ impl CpuComponent for AluComponent {
             bus.write_from(&ret);
         }
     }
+
+    fn step_print(&self) {
+        println!("alu: a {} b {}", self.reg_a.as_u32(), self.reg_b.as_u32());
+    }
 }
 
 pub struct ControlComponent<'a> {
@@ -220,17 +231,22 @@ pub struct ControlComponent<'a> {
     pub microcode_counter: AtomicUsize,
     pub current_microcodes: Arc<Mutex<Microcodes>>,
     pub instruction_register: MValue,
+    pub clock_step_rx: Receiver<()>,
+    pub clock_step: bool,
 }
 
 impl<'a> ControlComponent<'a> {
     pub fn run(&self, ctrl_rx: Receiver<MValue>) {
         loop {
+            if self.clock_step {
+                self.clock_step_rx.recv().unwrap();
+                self.step_print();
+            }
             self.set_cables(self.cables);
             if self.cables.load(Halt) {
                 println!("clock: halt");
                 break;
             }
-            println!("\n### new clock cycle ###");
             for t in &self.txs {
                 t.send(()).unwrap();
             }
@@ -252,9 +268,7 @@ impl<'a> ControlComponent<'a> {
             }
         }
     }
-}
 
-impl<'a> ControlComponent<'a> {
     fn set_cables(&self, cables: &ControlCables) {
         cables.reset();
         let mut current_microcodes = self.current_microcodes.lock();
@@ -269,6 +283,10 @@ impl<'a> ControlComponent<'a> {
             cables[*m].store(true, SeqCst);
         }
         self.microcode_counter.fetch_add(1, SeqCst);
+    }
+
+    pub fn step_print(&self) {
+        println!("control: microcode_counter {} ir {}", self.microcode_counter.load(SeqCst), self.instruction_register.as_u32());
     }
 }
 
@@ -321,5 +339,9 @@ impl CpuComponent for RamComponent {
                 bus.write_from(&self.ram_register);
             }
         }
+    }
+
+    fn step_print(&self) {
+        println!("ram: mar {} ram reg {}", self.memory_address_register.as_u32(), self.ram_register.as_u32());
     }
 }
