@@ -9,7 +9,7 @@ use crate::cpu_component::ControlCable::*;
 
 pub type Microcodes = Vec<Vec<usize>>;
 
-#[derive(PartialEq, Eq, Hash, FromPrimitive, Debug)]
+#[derive(PartialEq, Eq, Hash, FromPrimitive, Debug, Clone, Copy)]
 pub enum INSTRUCTION {
     HLT = 0b000000,
     MOV = 0b000001,
@@ -39,8 +39,8 @@ pub enum INSTRUCTION {
 
 use INSTRUCTION::*;
 
-const OPCODE_SHIFT: u8 = 10;
-const SOURCE_SHIFT: u8 = 5;
+pub const OPCODE_SHIFT: u8 = 10;
+pub const SOURCE_SHIFT: u8 = 5;
 const OPCODE_MASK: u32 = 0b1111110000000000;
 const SOURCE_MASK: u32 = 0b0000001111100000;
 const DEST_MASK: u32 = 0b0000000000011111;

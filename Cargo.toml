@@ -13,6 +13,7 @@ num = "0.4"
 num-derive = "0.3"
 num-traits = "0.2"
 phf = { version = "0.11", features = ["macros"] }
+clap = { version = "4.1.11", features = ["derive"] }
 
 [[bin]]
 name = "asm"

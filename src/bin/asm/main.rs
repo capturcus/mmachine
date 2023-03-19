@@ -1,13 +1,15 @@
-use std::collections::HashMap;
+use std::io::Write;
+use std::{collections::HashMap, path::PathBuf};
 
-use mmachine::microcodes::INSTRUCTION;
-use mmachine::microcodes::INSTRUCTION::*;
+use clap::{Parser, Subcommand};
+use mmachine::microcodes::{INSTRUCTION::*, SOURCE_SHIFT};
+use mmachine::microcodes::{INSTRUCTION, OPCODE_SHIFT};
 use phf::phf_map;
 
 #[derive(Debug)]
 enum Statement<'a> {
     Command(&'a INSTRUCTION, Vec<&'a REG>),
-    Ldcnst(String),
+    Ldcnst(&'a REG, String),
     Label(String),
 }
 
@@ -38,7 +40,7 @@ static MNEMONICS: phf::Map<&'static str, INSTRUCTION> = phf_map! {
     "ldcnst" => LDCNST,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum REG {
     A = 0b00000,
     B = 0b00001,
@@ -61,7 +63,18 @@ static REG_NAMES: phf::Map<&'static str, REG> = phf_map! {
     "inst" => REG::INST,
 };
 
-fn populate_labels(labels: &mut HashMap<String, usize>) {}
+fn populate_labels(statements: &Vec<Statement>, labels: &mut HashMap<String, u16>) {
+    let mut offset: u16 = 0;
+    for s in statements {
+        match s {
+            Statement::Command(_, _) => offset += 1,
+            Statement::Ldcnst(_, _) => offset += 2,
+            Statement::Label(l) => {
+                labels.insert(l.to_string(), offset);
+            }
+        }
+    }
+}
 
 fn parse_text(text: String) -> Vec<Statement<'static>> {
     let mut ret = Vec::new();
@@ -81,7 +94,7 @@ fn parse_text(text: String) -> Vec<Statement<'static>> {
         }
         let op_code = MNEMONICS.get(tokens.remove(0).as_str()).unwrap();
         if *op_code == LDCNST {
-            ret.push(Statement::Ldcnst(tokens[0].clone()));
+            ret.push(Statement::Ldcnst(REG_NAMES.get(&tokens[0]).unwrap(), tokens[1].clone()));
             continue;
         }
         let regs: Vec<&REG> = tokens.iter().map(|x| REG_NAMES.get(x).unwrap()).collect();
@@ -90,10 +103,72 @@ fn parse_text(text: String) -> Vec<Statement<'static>> {
     ret
 }
 
+fn generate_binary(ast: &Vec<Statement>, labels: &HashMap<String, u16>) -> Vec<u16> {
+    let mut ret = vec![];
+    for s in ast {
+        let mut opcode: u16 = 0;
+        match s {
+            Statement::Command(c, args) => {
+                opcode |= (**c as u16) << OPCODE_SHIFT;
+                if args.len() == 1 {
+                    if **c == PUSH {
+                        opcode |= (*args[0] as u16) << SOURCE_SHIFT;
+                    } else {
+                        opcode |= *args[0] as u16; // destination
+                    }
+                } else if args.len() == 2 {
+                    opcode |= (*args[0] as u16) << SOURCE_SHIFT;
+                    opcode |= *args[1] as u16;
+                }
+                ret.push(opcode);
+            }
+            Statement::Ldcnst(reg, data) => {
+                opcode |= (LDCNST as u16) << OPCODE_SHIFT;
+                opcode |= **reg as u16;
+                ret.push(opcode);
+                let maybe_constant: Result<u16, _> = data.parse();
+                match maybe_constant {
+                    Ok(constant) => ret.push(constant),
+                    Err(_) => {
+                        let label_location = labels.get(data).unwrap();
+                        ret.push(*label_location);
+                    },
+                }
+            },
+            Statement::Label(_) => {},
+        }
+    }
+    ret
+}
+
+pub fn to_bytes(input: Vec<u16>) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(2 * input.len());
+
+    for value in input {
+        bytes.extend(&value.to_be_bytes());
+    }
+
+    bytes
+}
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// the source mmasm file
+    src_file: PathBuf,
+
+    /// the output binary file
+    #[arg(short, long)]
+    output: PathBuf,
+}
+
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let contents = std::fs::read_to_string(args[1].clone()).unwrap();
-    // let mut labels = HashMap::new();
+    let args = Args::parse();
+    let contents = std::fs::read_to_string(args.src_file).unwrap();
+    let mut labels = HashMap::new();
     let ast = parse_text(contents);
-    println!("{:#?}", ast);
+    populate_labels(&ast, &mut labels);
+    let bin = generate_binary(&ast, &labels);
+    let mut f = std::fs::File::create(args.output).unwrap();
+    f.write_all(&to_bytes(bin)).unwrap();
 }

@@ -20,8 +20,8 @@ inc a
 dec b
 load a b
 store a b
-ldcnst 12345
-ldcnst siemka
+ldcnst pc 12345
+ldcnst a siemka
 hlt
 
 siemka:
