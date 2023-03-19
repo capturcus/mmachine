@@ -1,16 +1,18 @@
 use std::io::Write;
 use std::{collections::HashMap, path::PathBuf};
 
-use clap::{Parser, Subcommand};
+use clap::{Parser};
 use mmachine::microcodes::{INSTRUCTION::*, SOURCE_SHIFT};
 use mmachine::microcodes::{INSTRUCTION, OPCODE_SHIFT};
 use phf::phf_map;
+use regex::Regex;
 
 #[derive(Debug)]
 enum Statement<'a> {
     Command(&'a INSTRUCTION, Vec<&'a REG>),
     Ldcnst(&'a REG, String),
     Label(String),
+    Data(String),
 }
 
 static MNEMONICS: phf::Map<&'static str, INSTRUCTION> = phf_map! {
@@ -72,8 +74,19 @@ fn populate_labels(statements: &Vec<Statement>, labels: &mut HashMap<String, u16
             Statement::Label(l) => {
                 labels.insert(l.to_string(), offset);
             }
+            Statement::Data(d) => offset += d.len() as u16,
         }
     }
+}
+
+fn parse_data(tokens: Vec<String>) -> Statement<'static> {
+    let line = tokens.join(" ");
+    let re = Regex::new("\"([a-zA-Z0-9! ]+)\"").unwrap();
+    if !re.is_match(&line) {
+        panic!("wrong data format: {}", line);
+    }
+    let data = &re.captures(&line).unwrap()[1];
+    Statement::Data(data.to_string())
 }
 
 fn parse_text(text: String) -> Vec<Statement<'static>> {
@@ -92,7 +105,17 @@ fn parse_text(text: String) -> Vec<Statement<'static>> {
             ret.push(Statement::Label(label_name));
             continue;
         }
-        let op_code = MNEMONICS.get(tokens.remove(0).as_str()).unwrap();
+        let temp = tokens.remove(0);
+        if temp == "data" {
+            ret.push(parse_data(tokens));
+            continue;
+        }
+        let mnemonic = temp.as_str();
+        let maybe_op_code = MNEMONICS.get(mnemonic);
+        if maybe_op_code.is_none() {
+            panic!("wrong mnemonic: {}", mnemonic);
+        }
+        let op_code = maybe_op_code.unwrap();
         if *op_code == LDCNST {
             ret.push(Statement::Ldcnst(REG_NAMES.get(&tokens[0]).unwrap(), tokens[1].clone()));
             continue;
@@ -136,6 +159,11 @@ fn generate_binary(ast: &Vec<Statement>, labels: &HashMap<String, u16>) -> Vec<u
                 }
             },
             Statement::Label(_) => {},
+            Statement::Data(d) => {
+                for c in d.chars() {
+                    ret.push(c as u16);
+                }
+            },
         }
     }
     ret

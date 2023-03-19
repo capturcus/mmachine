@@ -1,3 +1,6 @@
 mov inst a
 ldcnst b 1
 out b a
+
+string:
+data "hello world!"
