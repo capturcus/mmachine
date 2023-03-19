@@ -1,8 +1,11 @@
+use std::sync::Arc;
 use std::vec;
+use std::sync::atomic::Ordering::SeqCst;
 
+use crate::bits::MValue;
 use crate::cpu_component::{
     reg_dec, reg_in, reg_inc, reg_out, ControlCables, ControlCablesExt, INSTRUCTION_REG_NUM,
-    PROGRAM_COUNTER_REG_NUM, STACK_POINTER_REG_NUM,
+    PROGRAM_COUNTER_REG_NUM, STACK_POINTER_REG_NUM, RegisterComponent, EQUAL_BIT_NUM, GREATER_BIT_NUM,
 };
 
 use crate::cpu_component::ControlCable::*;
@@ -37,13 +40,25 @@ pub enum INSTRUCTION {
     LDCNST = 0b011000,
 }
 
+#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq, FromPrimitive)]
+pub enum REG {
+    A = 0b00000,
+    B = 0b00001,
+    C = 0b00010,
+    D = 0b00011,
+    E = 0b00100,
+    PC = 0b00101,
+    SP = 0b00110,
+    INST = 0b00111,
+}
+
 use INSTRUCTION::*;
 
 pub const OPCODE_SHIFT: u8 = 10;
 pub const SOURCE_SHIFT: u8 = 5;
-const OPCODE_MASK: u32 = 0b1111110000000000;
-const SOURCE_MASK: u32 = 0b0000001111100000;
-const DEST_MASK: u32 = 0b0000000000011111;
+pub const OPCODE_MASK: u32 = 0b1111110000000000;
+pub const SOURCE_MASK: u32 = 0b0000001111100000;
+pub const DEST_MASK: u32 = 0b0000000000011111;
 
 pub fn create_fetch_microcodes(increment_pc: bool) -> Microcodes {
     let mut load_ir = vec![RamOut as usize, reg_in(INSTRUCTION_REG_NUM)];
@@ -56,7 +71,7 @@ pub fn create_fetch_microcodes(increment_pc: bool) -> Microcodes {
     ]
 }
 
-pub fn create_microcodes(instruction: u32, cables: &ControlCables) -> Microcodes {
+pub fn create_microcodes(instruction: u32, flags_reg: &MValue) -> Microcodes {
     let opcode = (instruction & OPCODE_MASK) >> OPCODE_SHIFT;
     let src: usize = ((instruction & SOURCE_MASK) >> SOURCE_SHIFT) as usize;
     let dst: usize = (instruction & DEST_MASK) as usize;
@@ -91,37 +106,37 @@ pub fn create_microcodes(instruction: u32, cables: &ControlCables) -> Microcodes
             jump = true;
         }
         JE => {
-            if cables.load(Equal) {
+            if flags_reg.bit(EQUAL_BIT_NUM).load(SeqCst) {
                 ret.push(vec![reg_out(dst), reg_in(PROGRAM_COUNTER_REG_NUM)]);
                 jump = true;
             }
         }
         JNE => {
-            if !cables.load(Equal) {
+            if !flags_reg.bit(EQUAL_BIT_NUM).load(SeqCst) {
                 ret.push(vec![reg_out(dst), reg_in(PROGRAM_COUNTER_REG_NUM)]);
                 jump = true;
             }
         }
         JG => {
-            if cables.load(Greater) {
+            if flags_reg.bit(GREATER_BIT_NUM).load(SeqCst) {
                 ret.push(vec![reg_out(dst), reg_in(PROGRAM_COUNTER_REG_NUM)]);
                 jump = true;
             }
         }
         JGE => {
-            if cables.load(Greater) || cables.load(Equal) {
+            if flags_reg.bit(GREATER_BIT_NUM).load(SeqCst) || flags_reg.bit(EQUAL_BIT_NUM).load(SeqCst) {
                 ret.push(vec![reg_out(dst), reg_in(PROGRAM_COUNTER_REG_NUM)]);
                 jump = true;
             }
         }
         JL => {
-            if !cables.load(Greater) && !cables.load(Equal) {
+            if !flags_reg.bit(GREATER_BIT_NUM).load(SeqCst) && !flags_reg.bit(EQUAL_BIT_NUM).load(SeqCst) {
                 ret.push(vec![reg_out(dst), reg_in(PROGRAM_COUNTER_REG_NUM)]);
                 jump = true;
             }
         }
         JLE => {
-            if !cables.load(Greater) {
+            if !flags_reg.bit(GREATER_BIT_NUM).load(SeqCst) {
                 ret.push(vec![reg_out(dst), reg_in(PROGRAM_COUNTER_REG_NUM)]);
                 jump = true;
             }
@@ -166,8 +181,8 @@ pub fn create_microcodes(instruction: u32, cables: &ControlCables) -> Microcodes
         }
         INT => todo!(),
         EOI => todo!(),
-        INC => ret.push(vec![reg_inc(dst - 1)]),
-        DEC => ret.push(vec![reg_dec(dst - 1)]),
+        INC => ret.push(vec![reg_inc(dst)]),
+        DEC => ret.push(vec![reg_dec(dst)]),
         LOAD => {
             ret.push(vec![reg_out(src), MemoryAddressIn as usize]);
             ret.push(vec![reg_in(dst), RamOut as usize]);
@@ -177,8 +192,20 @@ pub fn create_microcodes(instruction: u32, cables: &ControlCables) -> Microcodes
             ret.push(vec![reg_out(src), RamIn as usize]);
         }
         LDCNST => {
-            ret.push(vec![reg_out(PROGRAM_COUNTER_REG_NUM), MemoryAddressIn as usize]);
-            ret.push(vec![reg_in(dst), RamOut as usize, reg_inc(PROGRAM_COUNTER_REG_NUM)]);
+            ret.push(vec![
+                reg_out(PROGRAM_COUNTER_REG_NUM),
+                MemoryAddressIn as usize,
+            ]);
+            if dst == PROGRAM_COUNTER_REG_NUM {
+                ret.push(vec![reg_in(dst), RamOut as usize]);
+                jump = true;
+            } else {
+                ret.push(vec![
+                    reg_in(dst),
+                    RamOut as usize,
+                    reg_inc(PROGRAM_COUNTER_REG_NUM),
+                ]);
+            }
         }
     }
     ret.append(&mut create_fetch_microcodes(!jump));

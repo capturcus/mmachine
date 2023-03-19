@@ -9,6 +9,10 @@ pub struct MValue {
 }
 
 impl MValue {
+    pub fn bit(&self, i: usize) -> &AtomicBool {
+        &self.val[i]
+    }
+
     pub fn set(&self, other: &MValue) {
         for i in 0..BITNESS {
             self.val[i].store(other.val[i].load(SeqCst), SeqCst);

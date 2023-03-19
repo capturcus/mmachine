@@ -4,6 +4,7 @@ pub mod bits;
 pub mod bus;
 pub mod cpu_component;
 pub mod microcodes;
+pub mod decode;
 
 extern crate lazy_static;
 extern crate num;

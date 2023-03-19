@@ -1,5 +1,4 @@
 use parking_lot::Mutex;
-use std::fmt::Display;
 use std::sync::atomic::Ordering::SeqCst;
 
 use crate::bits::{MValue, BITNESS};
@@ -24,13 +23,10 @@ pub enum ControlCable {
 
     Interrupt,
 
-    Equal,
-    Greater,
-
     RegBase,
 }
 
-use crate::ControlCable::*;
+use crate::{decode, ControlCable::*};
 
 pub const CONTROL_CABLES_SIZE: usize =
     std::mem::variant_count::<ControlCable>() + REGISTERS_NUM * 4 - 1;
@@ -39,6 +35,9 @@ pub const STACK_POINTER_REG_NUM: usize = REGISTERS_NUM - 2;
 pub const PROGRAM_COUNTER_REG_NUM: usize = REGISTERS_NUM - 3;
 
 pub type ControlCables = [AtomicBool; CONTROL_CABLES_SIZE];
+
+pub const EQUAL_BIT_NUM: usize = 0;
+pub const GREATER_BIT_NUM: usize = 1;
 
 pub trait ControlCablesExt {
     fn reset(&self);
@@ -144,11 +143,9 @@ impl<'a> CpuComponent for RegisterComponent {
         let mut reg_name: String = self.reg_num.to_string();
         if self.reg_num == PROGRAM_COUNTER_REG_NUM {
             reg_name = "pc".to_string();
-        } else
-        if self.reg_num == STACK_POINTER_REG_NUM {
+        } else if self.reg_num == STACK_POINTER_REG_NUM {
             reg_name = "sp".to_string();
-        } else
-        if self.reg_num == INSTRUCTION_REG_NUM {
+        } else if self.reg_num == INSTRUCTION_REG_NUM {
             reg_name = "ir".to_string();
         } else {
             reg_name = ((self.reg_num as u8 + 97) as char).to_string();
@@ -160,6 +157,7 @@ impl<'a> CpuComponent for RegisterComponent {
 pub struct AluComponent {
     pub reg_a: MValue,
     pub reg_b: MValue,
+    pub flags_reg: Arc<MValue>,
 }
 
 impl AluComponent {
@@ -168,7 +166,6 @@ impl AluComponent {
         reg_rx: Receiver<(usize, MValue)>,
         alu_clock_tx: Sender<()>,
         ctrl_tx: Sender<MValue>,
-        cables: &ControlCables,
     ) {
         loop {
             let (reg_num, mvalue) = reg_rx.recv().unwrap();
@@ -181,8 +178,8 @@ impl AluComponent {
             if reg_num == INSTRUCTION_REG_NUM {
                 ctrl_tx.send(mvalue).unwrap();
             }
-            cables.store(self.reg_a.as_u32() > self.reg_b.as_u32(), Greater);
-            cables.store(self.reg_a.as_u32() == self.reg_b.as_u32(), Equal);
+            self.flags_reg.bit(EQUAL_BIT_NUM).store(self.reg_a.as_u32() == self.reg_b.as_u32(), SeqCst);
+            self.flags_reg.bit(GREATER_BIT_NUM).store(self.reg_a.as_u32() > self.reg_b.as_u32(), SeqCst);
             alu_clock_tx.send(()).unwrap();
         }
     }
@@ -233,6 +230,7 @@ pub struct ControlComponent<'a> {
     pub instruction_register: MValue,
     pub clock_step_rx: Receiver<()>,
     pub clock_step: bool,
+    pub flags_register: Arc<MValue>,
 }
 
 impl<'a> ControlComponent<'a> {
@@ -274,7 +272,7 @@ impl<'a> ControlComponent<'a> {
         let mut current_microcodes = self.current_microcodes.lock();
 
         if self.microcode_counter.load(SeqCst) == current_microcodes.len() {
-            *current_microcodes = create_microcodes(self.instruction_register.as_u32(), cables);
+            *current_microcodes = create_microcodes(self.instruction_register.as_u32(), &*self.flags_register);
             self.microcode_counter.store(0, SeqCst);
         }
 
@@ -286,7 +284,11 @@ impl<'a> ControlComponent<'a> {
     }
 
     pub fn step_print(&self) {
-        println!("control: microcode_counter {} ir {}", self.microcode_counter.load(SeqCst), self.instruction_register.as_u32());
+        println!(
+            "control: microcode_counter {} ir: {}",
+            self.microcode_counter.load(SeqCst),
+            decode::decode_instruction(self.instruction_register.as_u32()),
+        );
     }
 }
 
@@ -342,6 +344,10 @@ impl CpuComponent for RamComponent {
     }
 
     fn step_print(&self) {
-        println!("ram: mar {} ram reg {}", self.memory_address_register.as_u32(), self.ram_register.as_u32());
+        println!(
+            "ram: mar {} ram reg {}",
+            self.memory_address_register.as_u32(),
+            self.ram_register.as_u32()
+        );
     }
 }

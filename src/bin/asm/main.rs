@@ -1,9 +1,9 @@
 use std::io::Write;
 use std::{collections::HashMap, path::PathBuf};
 
-use clap::{Parser};
+use clap::Parser;
+use mmachine::microcodes::{INSTRUCTION, OPCODE_SHIFT, REG};
 use mmachine::microcodes::{INSTRUCTION::*, SOURCE_SHIFT};
-use mmachine::microcodes::{INSTRUCTION, OPCODE_SHIFT};
 use phf::phf_map;
 use regex::Regex;
 
@@ -41,18 +41,6 @@ static MNEMONICS: phf::Map<&'static str, INSTRUCTION> = phf_map! {
     "store" => STORE,
     "ldcnst" => LDCNST,
 };
-
-#[derive(Debug, Clone, Copy)]
-enum REG {
-    A = 0b00000,
-    B = 0b00001,
-    C = 0b00010,
-    D = 0b00011,
-    E = 0b00100,
-    PC = 0b00101,
-    SP = 0b00110,
-    INST = 0b00111,
-}
 
 static REG_NAMES: phf::Map<&'static str, REG> = phf_map! {
     "a" => REG::A,
@@ -117,10 +105,19 @@ fn parse_text(text: String) -> Vec<Statement<'static>> {
         }
         let op_code = maybe_op_code.unwrap();
         if *op_code == LDCNST {
-            ret.push(Statement::Ldcnst(REG_NAMES.get(&tokens[0]).unwrap(), tokens[1].clone()));
+            ret.push(Statement::Ldcnst(
+                REG_NAMES.get(&tokens[0]).unwrap(),
+                tokens[1].clone(),
+            ));
             continue;
         }
-        let regs: Vec<&REG> = tokens.iter().map(|x| REG_NAMES.get(x).unwrap()).collect();
+        let regs: Vec<&REG> = tokens
+            .iter()
+            .map(|x| match REG_NAMES.get(x) {
+                Some(y) => y,
+                None => panic!("wrong reg name: {}", x),
+            })
+            .collect();
         ret.push(Statement::Command(op_code, regs));
     }
     ret
@@ -155,15 +152,15 @@ fn generate_binary(ast: &Vec<Statement>, labels: &HashMap<String, u16>) -> Vec<u
                     Err(_) => {
                         let label_location = labels.get(data).unwrap();
                         ret.push(*label_location);
-                    },
+                    }
                 }
-            },
-            Statement::Label(_) => {},
+            }
+            Statement::Label(_) => {}
             Statement::Data(d) => {
                 for c in d.chars() {
                     ret.push(c as u16);
                 }
-            },
+            }
         }
     }
     ret

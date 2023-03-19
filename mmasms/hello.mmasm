@@ -1,0 +1,19 @@
+ldcnst c string
+ldcnst e 1
+
+loop:
+load c d
+mov d a
+ldcnst b 48
+ldcnst e end
+je e
+ldcnst e 1
+out e d
+inc c
+ldcnst pc loop
+
+end:
+hlt
+
+string:
+data "hello world!0"

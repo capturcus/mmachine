@@ -28,7 +28,11 @@ fn run_output(output_rx: Receiver<(MValue, MValue)>) {
     loop {
         match output_rx.recv() {
             Ok((port, value)) => {
-                println!("OUTPUT: port {} value {}", port.as_u32(), value.as_u32());
+                if port.as_u32() == 1 {
+                    print!("{}", (value.as_u32() as u8) as char);
+                } else {
+                    println!("OUTPUT: port {} value {}", port.as_u32(), value.as_u32());
+                }
             }
             Err(_) => return,
         }
@@ -75,13 +79,8 @@ fn main() {
     let (clock_step_tx, clock_step_rx) = channel();
 
     let mut txs = Vec::new();
-    let alu = Arc::new(AluComponent {
-        reg_a: MValue::from_u32(0),
-        reg_b: MValue::from_u32(0),
-    });
 
     let mut components: Vec<Arc<dyn CpuComponent + Send + Sync>> = vec![
-        alu.clone(),
         Arc::new(RamComponent {
             memory: load_ram(args.bin_file),
             memory_address_register: MValue::default(),
@@ -99,12 +98,19 @@ fn main() {
             sent_to_alu: sent_to_alu.clone(),
         }));
     }
+    let flags_register = Arc::new(MValue::from_u32(0));
+    let alu = Arc::new(AluComponent {
+        reg_a: MValue::from_u32(0),
+        reg_b: MValue::from_u32(0),
+        flags_reg: flags_register.clone(),
+    });
+    components.push(alu.clone());
 
     let print_components = components.clone();
 
     std::thread::scope(|s| {
         s.spawn(|| {
-            alu.run(alu_rx, alu_clock_tx, ctrl_tx, &cables);
+            alu.run(alu_rx, alu_clock_tx, ctrl_tx);
         });
         s.spawn(move || {
             run_input(input_tx, input_req_rx);
@@ -140,6 +146,7 @@ fn main() {
             current_microcodes: Arc::new(Mutex::new(create_fetch_microcodes(true))),
             clock_step_rx: clock_step_rx,
             clock_step: args.step,
+            flags_register: flags_register.clone(),
         };
         s.spawn(move || {
             clock.run(ctrl_rx);
@@ -148,8 +155,8 @@ fn main() {
         let stdin = io::stdin();
 
         loop {
-            stdin.lock().read_line(&mut line).unwrap();
             if args.step {
+                stdin.lock().read_line(&mut line).unwrap();
                 for c in &print_components {
                     c.step_print();
                 }
