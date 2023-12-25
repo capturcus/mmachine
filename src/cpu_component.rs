@@ -242,7 +242,7 @@ impl<'a> ControlComponent<'a> {
             }
             self.set_cables(self.cables);
             if self.cables.load(Halt) {
-                println!("clock: halt");
+                println!("\nclock: halt");
                 break;
             }
             for t in &self.txs {

@@ -1,28 +1,26 @@
-mov a b   ; movs a to b
-add c
-sub d
-mul e
-div d
-call a
-je a
-jne a
-jg a
-jge a
-jl a
-jle a
+ldcnst a 5
 push a
-pop a
-out a b
-in a b
-;int
-;eoi
-inc a
-dec b
-load a b
-store a b
-ldcnst pc 12345
-ldcnst a siemka
+ldcnst a 6
+push a
+ldcnst e function
+call e
+ldcnst e 99
+ldcnst d 1
+out d e
 hlt
 
-siemka:
-out a b
+function:
+pop a
+pop b
+ldcnst e greater
+jg e
+ldcnst e 97
+ldcnst d 1
+out d e
+ldcnst pc func_end
+greater:
+ldcnst e 98
+ldcnst d 1
+out d e
+func_end:
+pop pc

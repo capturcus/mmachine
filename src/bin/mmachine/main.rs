@@ -6,7 +6,7 @@ use mmachine::bits::MValue;
 use mmachine::bus::Bus;
 use mmachine::cpu_component::{
     start_cpu_component, AluComponent, ControlComponent, CpuComponent, CpuComponentArgs,
-    RamComponent, RegisterComponent, RAM_SIZE, REGISTERS_NUM,
+    RamComponent, RegisterComponent, RAM_SIZE, REGISTERS_NUM, STACK_POINTER_REG_NUM,
 };
 use mmachine::microcodes::create_fetch_microcodes;
 use parking_lot::Mutex;
@@ -91,8 +91,12 @@ fn main() {
         }),
     ];
     for i in 0..REGISTERS_NUM {
+        let mut start_value: u32 = 0;
+        if i == STACK_POINTER_REG_NUM {
+            start_value = RAM_SIZE as u32 - 1;
+        }
         components.push(Arc::new(RegisterComponent {
-            value: MValue::from_u32(0),
+            value: MValue::from_u32(start_value),
             reg_num: i,
             alu_tx: alu_tx_arc.clone(),
             sent_to_alu: sent_to_alu.clone(),

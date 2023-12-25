@@ -154,14 +154,19 @@ pub fn create_microcodes(instruction: u32, flags_reg: &MValue) -> Microcodes {
         }
         POP => {
             ret.push(vec![
+                reg_inc(STACK_POINTER_REG_NUM),
+            ]);
+            ret.push(vec![
                 reg_out(STACK_POINTER_REG_NUM),
                 MemoryAddressIn as usize,
             ]);
             ret.push(vec![
                 reg_in(dst),
                 RamOut as usize,
-                reg_inc(STACK_POINTER_REG_NUM),
             ]);
+            if dst == PROGRAM_COUNTER_REG_NUM {
+                jump = true;
+            }
         }
         OUT => {
             ret.push(vec![
