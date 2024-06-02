@@ -1,11 +1,10 @@
-use std::sync::Arc;
-use std::vec;
 use std::sync::atomic::Ordering::SeqCst;
+use std::vec;
 
 use crate::bits::MValue;
 use crate::cpu_component::{
-    reg_dec, reg_in, reg_inc, reg_out, ControlCables, ControlCablesExt, INSTRUCTION_REG_NUM,
-    PROGRAM_COUNTER_REG_NUM, STACK_POINTER_REG_NUM, RegisterComponent, EQUAL_BIT_NUM, GREATER_BIT_NUM,
+    reg_dec, reg_in, reg_inc, reg_out, EQUAL_BIT_NUM, GREATER_BIT_NUM, INSTRUCTION_REG_NUM,
+    PROGRAM_COUNTER_REG_NUM, STACK_POINTER_REG_NUM,
 };
 
 use crate::cpu_component::ControlCable::*;
@@ -60,14 +59,14 @@ pub const OPCODE_MASK: u32 = 0b1111110000000000;
 pub const SOURCE_MASK: u32 = 0b0000001111100000;
 pub const DEST_MASK: u32 = 0b0000000000011111;
 
-pub fn create_fetch_microcodes(increment_pc: bool) -> Microcodes {
-    let mut load_ir = vec![RamOut as usize, reg_in(INSTRUCTION_REG_NUM)];
-    if increment_pc {
-        load_ir.push(reg_inc(PROGRAM_COUNTER_REG_NUM));
-    }
+pub fn create_fetch_microcodes() -> Microcodes {
     vec![
         vec![reg_out(PROGRAM_COUNTER_REG_NUM), MemoryAddressIn as usize],
-        load_ir,
+        vec![
+            RamOut as usize,
+            reg_in(INSTRUCTION_REG_NUM),
+            reg_inc(PROGRAM_COUNTER_REG_NUM),
+        ],
     ]
 }
 
@@ -77,8 +76,6 @@ pub fn create_microcodes(instruction: u32, flags_reg: &MValue) -> Microcodes {
     let dst: usize = (instruction & DEST_MASK) as usize;
 
     let mut ret: Microcodes = vec![];
-
-    let mut jump = false;
 
     match num::FromPrimitive::from_u32(opcode).unwrap() {
         HLT => ret.push(vec![Halt as usize]),
@@ -103,42 +100,39 @@ pub fn create_microcodes(instruction: u32, flags_reg: &MValue) -> Microcodes {
                 reg_dec(STACK_POINTER_REG_NUM),
             ]);
             ret.push(vec![reg_out(dst), reg_in(PROGRAM_COUNTER_REG_NUM)]);
-            jump = true;
         }
         JE => {
             if flags_reg.bit(EQUAL_BIT_NUM).load(SeqCst) {
                 ret.push(vec![reg_out(dst), reg_in(PROGRAM_COUNTER_REG_NUM)]);
-                jump = true;
             }
         }
         JNE => {
             if !flags_reg.bit(EQUAL_BIT_NUM).load(SeqCst) {
                 ret.push(vec![reg_out(dst), reg_in(PROGRAM_COUNTER_REG_NUM)]);
-                jump = true;
             }
         }
         JG => {
             if flags_reg.bit(GREATER_BIT_NUM).load(SeqCst) {
                 ret.push(vec![reg_out(dst), reg_in(PROGRAM_COUNTER_REG_NUM)]);
-                jump = true;
             }
         }
         JGE => {
-            if flags_reg.bit(GREATER_BIT_NUM).load(SeqCst) || flags_reg.bit(EQUAL_BIT_NUM).load(SeqCst) {
+            if flags_reg.bit(GREATER_BIT_NUM).load(SeqCst)
+                || flags_reg.bit(EQUAL_BIT_NUM).load(SeqCst)
+            {
                 ret.push(vec![reg_out(dst), reg_in(PROGRAM_COUNTER_REG_NUM)]);
-                jump = true;
             }
         }
         JL => {
-            if !flags_reg.bit(GREATER_BIT_NUM).load(SeqCst) && !flags_reg.bit(EQUAL_BIT_NUM).load(SeqCst) {
+            if !flags_reg.bit(GREATER_BIT_NUM).load(SeqCst)
+                && !flags_reg.bit(EQUAL_BIT_NUM).load(SeqCst)
+            {
                 ret.push(vec![reg_out(dst), reg_in(PROGRAM_COUNTER_REG_NUM)]);
-                jump = true;
             }
         }
         JLE => {
             if !flags_reg.bit(GREATER_BIT_NUM).load(SeqCst) {
                 ret.push(vec![reg_out(dst), reg_in(PROGRAM_COUNTER_REG_NUM)]);
-                jump = true;
             }
         }
         PUSH => {
@@ -153,20 +147,12 @@ pub fn create_microcodes(instruction: u32, flags_reg: &MValue) -> Microcodes {
             ]);
         }
         POP => {
-            ret.push(vec![
-                reg_inc(STACK_POINTER_REG_NUM),
-            ]);
+            ret.push(vec![reg_inc(STACK_POINTER_REG_NUM)]);
             ret.push(vec![
                 reg_out(STACK_POINTER_REG_NUM),
                 MemoryAddressIn as usize,
             ]);
-            ret.push(vec![
-                reg_in(dst),
-                RamOut as usize,
-            ]);
-            if dst == PROGRAM_COUNTER_REG_NUM {
-                jump = true;
-            }
+            ret.push(vec![reg_in(dst), RamOut as usize]);
         }
         OUT => {
             ret.push(vec![
@@ -203,7 +189,6 @@ pub fn create_microcodes(instruction: u32, flags_reg: &MValue) -> Microcodes {
             ]);
             if dst == PROGRAM_COUNTER_REG_NUM {
                 ret.push(vec![reg_in(dst), RamOut as usize]);
-                jump = true;
             } else {
                 ret.push(vec![
                     reg_in(dst),
@@ -213,6 +198,6 @@ pub fn create_microcodes(instruction: u32, flags_reg: &MValue) -> Microcodes {
             }
         }
     }
-    ret.append(&mut create_fetch_microcodes(!jump));
+    ret.append(&mut create_fetch_microcodes());
     ret
 }

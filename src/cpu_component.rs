@@ -11,6 +11,7 @@ use std::sync::Arc;
 pub const REGISTERS_NUM: usize = 8;
 pub const RAM_SIZE: usize = 1 << BITNESS;
 
+#[derive(PartialEq, Eq, Hash, FromPrimitive)]
 pub enum ControlCable {
     Halt,
     MemoryAddressIn,
@@ -285,9 +286,10 @@ impl<'a> ControlComponent<'a> {
 
     pub fn step_print(&self) {
         println!(
-            "control: microcode_counter {} ir: {}",
-            self.microcode_counter.load(SeqCst),
+            "control: ir: {} microcode_counter: {} cables: {}",
             decode::decode_instruction(self.instruction_register.as_u32()),
+            self.microcode_counter.load(SeqCst),
+            decode::dump_cables(self.cables),
         );
     }
 }

@@ -3,6 +3,9 @@ use std::{collections::HashMap};
 use crate::decode::INSTRUCTION::*;
 
 use crate::microcodes::{OPCODE_MASK, SOURCE_MASK, DEST_MASK, INSTRUCTION, REG, OPCODE_SHIFT, SOURCE_SHIFT};
+use crate::{ControlCable, ControlCables};
+use crate::ControlCable::*;
+use crate::CONTROL_CABLES_SIZE;
 
 fn mnemonic_names() -> HashMap<INSTRUCTION, &'static str> {
     let mut ret = HashMap::new();
@@ -43,6 +46,48 @@ fn reg_names() -> HashMap<REG, &'static str> {
     ret.insert(REG::PC, "pc");
     ret.insert(REG::SP, "sp");
     ret.insert(REG::INST, "inst");
+    ret
+}
+
+fn cable_names() -> HashMap<ControlCable, &'static str> {
+    let mut ret = HashMap::new();
+    ret.insert(Halt,"Halt");
+    ret.insert(MemoryAddressIn,"MemoryAddressIn");
+    ret.insert(RamIn,"RamIn");
+    ret.insert(RamOut,"RamOut");
+    ret.insert(MemoryIsIO,"MemoryIsIO");
+    ret.insert(AddMul,"AddMul");
+    ret.insert(SubDiv,"SubDiv");
+    ret.insert(AluOut,"AluOut");
+    ret.insert(Interrupt,"Interrupt");
+    ret
+}
+
+fn op_names() -> HashMap<usize, &'static str> {
+    let mut ret = HashMap::new();
+    ret.insert(0, "in");
+    ret.insert(1, "out");
+    ret.insert(2, "inc");
+    ret.insert(3, "dec");
+    ret
+}
+
+pub fn dump_cables(cables: &ControlCables) -> String {
+    let mut ret = String::new();
+    for i in 0..CONTROL_CABLES_SIZE {
+        if cables[i].load(std::sync::atomic::Ordering::SeqCst) {
+            if i < RegBase as usize{
+                ret.push_str(cable_names()[&num::FromPrimitive::from_usize(i).unwrap()]);
+                ret.push_str(" ");
+            } else {
+                let reg_num = (i - RegBase as usize)/4;
+                let reg_op = (i - RegBase as usize)%4;
+                let reg_name = reg_names()[&num::FromPrimitive::from_usize(reg_num).unwrap()];
+                let op_name = op_names()[&reg_op];
+                ret.push_str(format!("{}_{} ", reg_name, op_name).as_str());
+            }
+        }
+    }
     ret
 }
 

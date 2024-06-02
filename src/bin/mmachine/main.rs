@@ -147,7 +147,7 @@ fn main() {
             bus: bus.clone(),
             microcode_counter: AtomicUsize::new(0),
             instruction_register: MValue::from_u32(0),
-            current_microcodes: Arc::new(Mutex::new(create_fetch_microcodes(true))),
+            current_microcodes: Arc::new(Mutex::new(create_fetch_microcodes())),
             clock_step_rx: clock_step_rx,
             clock_step: args.step,
             flags_register: flags_register.clone(),
