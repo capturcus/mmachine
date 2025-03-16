@@ -113,15 +113,15 @@ fn main() {
     let print_components = components.clone();
 
     std::thread::scope(|s| {
-        s.spawn(|| {
+        let alu_thread = s.spawn(|| {
             alu.run(alu_rx, alu_clock_tx, ctrl_tx);
         });
-        s.spawn(move || {
-            run_input(input_tx, input_req_rx);
-        });
-        s.spawn(move || {
-            run_output(output_rx);
-        });
+        // s.spawn(move || {
+        //     run_input(input_tx, input_req_rx);
+        // });
+        // s.spawn(move || {
+        //     run_output(output_rx);
+        // });
         for c in components {
             let (tx, rx) = channel();
             start_cpu_component(
@@ -151,21 +151,22 @@ fn main() {
             clock_step_rx: clock_step_rx,
             clock_step: args.step,
             flags_register: flags_register.clone(),
+            alu_tx: alu_tx_arc.clone(),
         };
         s.spawn(move || {
             clock.run(ctrl_rx);
         });
-        let mut line = String::new();
-        let stdin = io::stdin();
+        // let mut line = String::new();
+        // let stdin = io::stdin();
 
-        loop {
-            if args.step {
-                stdin.lock().read_line(&mut line).unwrap();
-                for c in &print_components {
-                    c.step_print();
-                }
-                clock_step_tx.send(()).unwrap();
-            }
-        }
+        // loop {
+        //     if args.step {
+        //         stdin.lock().read_line(&mut line).unwrap();
+        //         for c in &print_components {
+        //             c.step_print();
+        //         }
+        //         clock_step_tx.send(()).unwrap();
+        //     }
+        // }
     });
 }

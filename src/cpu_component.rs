@@ -11,6 +11,8 @@ use std::sync::Arc;
 pub const REGISTERS_NUM: usize = 8;
 pub const RAM_SIZE: usize = 1 << BITNESS;
 
+static HALTED: AtomicBool = AtomicBool::new(false);
+
 #[derive(PartialEq, Eq, Hash, FromPrimitive)]
 pub enum ControlCable {
     Halt,
@@ -83,7 +85,12 @@ pub fn start_cpu_component<
     scope: &'a std::thread::Scope<'a, '_>,
 ) {
     scope.spawn(move || loop {
-        match args.rx.recv() {
+        let clock_val = args.rx.recv();
+        if HALTED.load(SeqCst) {
+            println!("cpu component break");
+            break;
+        }
+        match clock_val {
             Ok(_) => {
                 component.step(args.bus.clone(), &args.cables);
                 args.finished.fetch_add(1, SeqCst);
@@ -170,6 +177,10 @@ impl AluComponent {
     ) {
         loop {
             let (reg_num, mvalue) = reg_rx.recv().unwrap();
+            if HALTED.load(SeqCst) {
+                println!("alu component break");
+                break;
+            }
             if reg_num == 0 {
                 self.reg_a.set(&mvalue);
             }
@@ -232,6 +243,7 @@ pub struct ControlComponent<'a> {
     pub clock_step_rx: Receiver<()>,
     pub clock_step: bool,
     pub flags_register: Arc<MValue>,
+    pub alu_tx: Arc<Mutex<Sender<(usize, MValue)>>>,
 }
 
 impl<'a> ControlComponent<'a> {
@@ -244,10 +256,15 @@ impl<'a> ControlComponent<'a> {
             self.set_cables(self.cables);
             if self.cables.load(Halt) {
                 println!("\nclock: halt");
-                break;
+                HALTED.store(true, SeqCst);
+                self.alu_tx.lock().send((0, MValue::from_u32(0))).unwrap();
             }
             for t in &self.txs {
                 t.send(()).unwrap();
+            }
+            if HALTED.load(SeqCst) {
+                println!("control component break");
+                break;
             }
             loop {
                 self.clock_rx.recv().unwrap();
