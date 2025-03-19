@@ -33,7 +33,7 @@ fn mvalue_test_sub() {
     let v2 = MValue::from_u32(420);
     v2.sub(&v);
     assert_eq!(v2.as_u32(), 351);
-    
+
     let v = MValue::from_u32(19937);
     let v2 = MValue::from_u32(9377);
     v.sub(&v2);

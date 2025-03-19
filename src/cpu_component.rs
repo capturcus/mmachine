@@ -11,7 +11,7 @@ use std::sync::Arc;
 pub const REGISTERS_NUM: usize = 8;
 pub const RAM_SIZE: usize = 1 << BITNESS;
 
-static HALTED: AtomicBool = AtomicBool::new(false);
+// static HALTED: AtomicBool = AtomicBool::new(false);
 
 #[derive(PartialEq, Eq, Hash, FromPrimitive)]
 pub enum ControlCable {
@@ -69,6 +69,7 @@ pub struct CpuComponentArgs<'a> {
     pub rx: Receiver<()>,
     pub finished: &'a AtomicUsize,
     pub clock_tx: Sender<()>,
+    pub halted: Arc<AtomicBool>,
 }
 
 pub trait CpuComponent {
@@ -86,8 +87,7 @@ pub fn start_cpu_component<
 ) {
     scope.spawn(move || loop {
         let clock_val = args.rx.recv();
-        if HALTED.load(SeqCst) {
-            println!("cpu component break");
+        if args.halted.load(SeqCst) {
             break;
         }
         match clock_val {
@@ -166,6 +166,7 @@ pub struct AluComponent {
     pub reg_a: MValue,
     pub reg_b: MValue,
     pub flags_reg: Arc<MValue>,
+    pub halted: Arc<AtomicBool>,
 }
 
 impl AluComponent {
@@ -177,8 +178,7 @@ impl AluComponent {
     ) {
         loop {
             let (reg_num, mvalue) = reg_rx.recv().unwrap();
-            if HALTED.load(SeqCst) {
-                println!("alu component break");
+            if self.halted.load(SeqCst) {
                 break;
             }
             if reg_num == 0 {
@@ -190,8 +190,12 @@ impl AluComponent {
             if reg_num == INSTRUCTION_REG_NUM {
                 ctrl_tx.send(mvalue).unwrap();
             }
-            self.flags_reg.bit(EQUAL_BIT_NUM).store(self.reg_a.as_u32() == self.reg_b.as_u32(), SeqCst);
-            self.flags_reg.bit(GREATER_BIT_NUM).store(self.reg_a.as_u32() > self.reg_b.as_u32(), SeqCst);
+            self.flags_reg
+                .bit(EQUAL_BIT_NUM)
+                .store(self.reg_a.as_u32() == self.reg_b.as_u32(), SeqCst);
+            self.flags_reg
+                .bit(GREATER_BIT_NUM)
+                .store(self.reg_a.as_u32() > self.reg_b.as_u32(), SeqCst);
             alu_clock_tx.send(()).unwrap();
         }
     }
@@ -244,6 +248,7 @@ pub struct ControlComponent<'a> {
     pub clock_step: bool,
     pub flags_register: Arc<MValue>,
     pub alu_tx: Arc<Mutex<Sender<(usize, MValue)>>>,
+    pub halted: Arc<AtomicBool>,
 }
 
 impl<'a> ControlComponent<'a> {
@@ -256,14 +261,13 @@ impl<'a> ControlComponent<'a> {
             self.set_cables(self.cables);
             if self.cables.load(Halt) {
                 println!("\nclock: halt");
-                HALTED.store(true, SeqCst);
+                self.halted.store(true, SeqCst);
                 self.alu_tx.lock().send((0, MValue::from_u32(0))).unwrap();
             }
             for t in &self.txs {
                 t.send(()).unwrap();
             }
-            if HALTED.load(SeqCst) {
-                println!("control component break");
+            if self.halted.load(SeqCst) {
                 break;
             }
             loop {
@@ -290,7 +294,8 @@ impl<'a> ControlComponent<'a> {
         let mut current_microcodes = self.current_microcodes.lock();
 
         if self.microcode_counter.load(SeqCst) == current_microcodes.len() {
-            *current_microcodes = create_microcodes(self.instruction_register.as_u32(), &*self.flags_register);
+            *current_microcodes =
+                create_microcodes(self.instruction_register.as_u32(), &*self.flags_register);
             self.microcode_counter.store(0, SeqCst);
         }
 
@@ -317,7 +322,7 @@ pub struct RamComponent {
     pub ram_register: MValue,
     pub output_tx: Arc<Mutex<Sender<(MValue, MValue)>>>,
     pub input_req_tx: Arc<Mutex<Sender<MValue>>>,
-    pub input_rx: Arc<Mutex<Receiver<Option<MValue>>>>,
+    pub input_rx: Arc<Mutex<Receiver<MValue>>>,
 }
 
 impl CpuComponent for RamComponent {
@@ -351,9 +356,7 @@ impl CpuComponent for RamComponent {
                     .send(self.memory_address_register.clone())
                     .unwrap();
                 let v = self.input_rx.lock().recv().unwrap();
-                if v.is_some() {
-                    bus.write_from(&v.unwrap());
-                }
+                bus.write_from(&v);
             } else {
                 let memory_index = self.memory_address_register.as_u32() as usize;
                 self.ram_register.set(&self.memory[memory_index]);

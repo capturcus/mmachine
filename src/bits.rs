@@ -64,7 +64,10 @@ impl MValue {
             result.val[i].store(sum, SeqCst);
 
             // Calculate the new carry.
-            carry.store((a_bit & b_bit) | (a_bit & carry.load(SeqCst)) | (b_bit & carry.load(SeqCst)), SeqCst);
+            carry.store(
+                (a_bit & b_bit) | (a_bit & carry.load(SeqCst)) | (b_bit & carry.load(SeqCst)),
+                SeqCst,
+            );
         }
         self.set(&result);
     }
@@ -84,7 +87,10 @@ impl MValue {
             result.val[i].store(diff, SeqCst);
 
             // Calculate the new borrow.
-            borrow.store((!a_bit & b_bit) | ((!a_bit | b_bit) & borrow.load(SeqCst)), SeqCst);
+            borrow.store(
+                (!a_bit & b_bit) | ((!a_bit | b_bit) & borrow.load(SeqCst)),
+                SeqCst,
+            );
         }
         self.set(&result);
     }
